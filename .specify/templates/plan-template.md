@@ -102,3 +102,9 @@ directories captured above]
 |-----------|------------|-------------------------------------|
 | [e.g., 4th project] | [current need] | [why 3 projects insufficient] |
 | [e.g., Repository pattern] | [specific problem] | [why direct DB access insufficient] |
+
+## Codex Execute Command
+
+| Task ID | File | Instruction |
+|--------|------|------|
+| {{task_id}} | {{file_path}} | {{code_instruction}} |
