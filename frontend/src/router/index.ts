@@ -27,44 +27,16 @@ const router = createRouter({
   routes: [
     {
       path: '/',
+      component: () => import('@/layouts/DefaultLayout.vue'),
       redirect: '/workflow',
-      meta: { title: '首页' }
-    },
-    {
-      path: '/workflow',
-      name: 'workflow',
-      component: () => import('@/views/WorkflowView.vue'),
-      meta: { title: 'Agent 工作流' }
-    },
-    {
-      path: '/mcp',
-      name: 'mcp',
-      component: () => import('@/views/MCPView.vue'),
-      meta: { title: '插件广场' }
-    },
-    {
-      path: '/skills',
-      name: 'skills',
-      component: () => import('@/views/SkillView.vue'),
-      meta: { title: 'Skill 管理' }
-    },
-    {
-      path: '/pipelines',
-      name: 'pipelines',
-      component: () => import('@/views/PipelineView.vue'),
-      meta: { title: '检测规则管理' }
-    },
-    {
-      path: '/models',
-      name: 'models',
-      component: () => import('@/views/ModelView.vue'),
-      meta: { title: '模型配置' }
-    },
-    {
-      path: '/agents',
-      name: 'agents',
-      component: () => import('@/views/AgentView.vue'),
-      meta: { title: 'Agent 管理' }
+      children: [
+        { path: 'workflow', name: 'workflow', component: () => import('@/views/WorkflowView.vue'), meta: { title: 'Agent 工作流' } },
+        { path: 'mcp', name: 'mcp', component: () => import('@/views/MCPView.vue'), meta: { title: '插件广场' } },
+        { path: 'skills', name: 'skills', component: () => import('@/views/SkillView.vue'), meta: { title: 'Skill 管理' } },
+        { path: 'pipelines', name: 'pipelines', component: () => import('@/views/PipelineView.vue'), meta: { title: '检测规则管理' } },
+        { path: 'models', name: 'models', component: () => import('@/views/ModelView.vue'), meta: { title: '模型配置' } },
+        { path: 'agents', name: 'agents', component: () => import('@/views/AgentView.vue'), meta: { title: 'Agent 管理' } },
+      ]
     }
   ]
 })
