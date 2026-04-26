@@ -17,6 +17,8 @@ class ToolCreate(BaseModel):
     description: str | None = None
     protocol: str
     endpoint_url: str | None = None
+    auth_type: str = "NONE"
+    auth_config: dict | None = None
     input_schema: dict = {}
     output_schema: dict | None = None
     source_platform: str = "local"
@@ -29,6 +31,8 @@ class ToolUpdate(BaseModel):
     description: str | None = None
     protocol: str | None = None
     endpoint_url: str | None = None
+    auth_type: str | None = None
+    auth_config: dict | None = None
     input_schema: dict | None = None
     output_schema: dict | None = None
     tags: list | None = None

@@ -11,6 +11,13 @@ class ToolProtocol(str, enum.Enum):
     BUILTIN = "BUILTIN"
 
 
+class ToolAuthType(str, enum.Enum):
+    NONE = "NONE"
+    API_KEY = "API_KEY"
+    BEARER_TOKEN = "BEARER_TOKEN"
+    BASIC_AUTH = "BASIC_AUTH"
+
+
 class Tool(Base):
     __tablename__ = "tools"
 
@@ -20,6 +27,11 @@ class Tool(Base):
     description: Mapped[str | None] = mapped_column(Text)
     protocol: Mapped[ToolProtocol] = mapped_column(Enum(ToolProtocol), nullable=False)
     endpoint_url: Mapped[str | None] = mapped_column(String(512))
+    auth_type: Mapped[ToolAuthType] = mapped_column(Enum(ToolAuthType), nullable=False, default=ToolAuthType.NONE)
+    # API_KEY: {key_name, key_value, key_location(header/query)}
+    # BEARER_TOKEN: {token}
+    # BASIC_AUTH: {username, password}
+    auth_config: Mapped[dict | None] = mapped_column(JSON)
     input_schema: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     output_schema: Mapped[dict | None] = mapped_column(JSON)
     source_platform: Mapped[str] = mapped_column(String(128), default="local")

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { marketplaceApi } from '@/api/index'
+import { marketplaceApi, toolApi, skillApi, agentApi } from '@/api/index'
 
 export type MarketplaceItemType = 'tool' | 'skill' | 'agent'
 
@@ -35,6 +35,26 @@ export interface MarketplaceTogglePayload {
   enabled: boolean
 }
 
+export interface CreateToolData {
+  name: string
+  display_name: string
+  description?: string
+  protocol: string
+  endpoint_url?: string
+  auth_type?: string
+  auth_config?: Record<string, string> | null
+  tags?: string[]
+  version?: string
+}
+
+export interface CreateSkillData {
+  name: string
+  description?: string
+  trigger_condition?: string
+  tags?: string[]
+  version?: string
+}
+
 interface MarketplaceListResponse {
   items?: MarketplaceItem[]
 }
@@ -57,11 +77,7 @@ export const useMarketplaceStore = defineStore('marketplace', () => {
   function updateLocalItem(item_type: string, item_id: number, patch: Partial<MarketplaceItem>) {
     const index = items.value.findIndex(item => item.item_type === item_type && item.id === item_id)
     if (index === -1) return
-
-    items.value[index] = {
-      ...items.value[index],
-      ...patch,
-    }
+    items.value[index] = { ...items.value[index], ...patch }
   }
 
   async function fetchItems(params?: MarketplaceQueryParams) {
@@ -79,7 +95,6 @@ export const useMarketplaceStore = defineStore('marketplace', () => {
   async function installItem(item_type: string, item_id: number) {
     const key = getInstallingKey(item_type, item_id)
     installing.value[key] = true
-
     try {
       const data = await marketplaceApi.install(item_type, item_id) as MarketplaceInstallResponse
       updateLocalItem(item_type, item_id, { enabled: data.enabled })
@@ -96,7 +111,6 @@ export const useMarketplaceStore = defineStore('marketplace', () => {
   async function uninstallItem(item_type: string, item_id: number) {
     const key = getInstallingKey(item_type, item_id)
     installing.value[key] = true
-
     try {
       const data = await marketplaceApi.uninstall(item_type, item_id) as MarketplaceInstallResponse
       updateLocalItem(item_type, item_id, { enabled: data.enabled })
@@ -116,6 +130,32 @@ export const useMarketplaceStore = defineStore('marketplace', () => {
     return result
   }
 
+  async function createTool(data: CreateToolData) {
+    const result = await toolApi.create(data)
+    ElMessage.success('工具添加成功')
+    return result
+  }
+
+  async function createSkill(data: CreateSkillData) {
+    const result = await skillApi.create(data)
+    ElMessage.success('技能添加成功')
+    return result
+  }
+
+  async function deleteItem(item_type: MarketplaceItemType, item_id: number) {
+    if (item_type === 'tool') {
+      await toolApi.delete(item_id)
+    } else if (item_type === 'skill') {
+      await skillApi.delete(item_id)
+    } else {
+      await agentApi.delete(item_id)
+    }
+    items.value = items.value.filter(
+      (i) => !(i.item_type === item_type && i.id === item_id)
+    )
+    ElMessage.success('已删除')
+  }
+
   return {
     items,
     loading,
@@ -124,5 +164,8 @@ export const useMarketplaceStore = defineStore('marketplace', () => {
     installItem,
     uninstallItem,
     registerAgent,
+    createTool,
+    createSkill,
+    deleteItem,
   }
 })
