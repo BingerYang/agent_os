@@ -297,6 +297,177 @@ Phase 1+2 全员协作完成
 
 ---
 
+## Phase 8: 模块细化补充（plan.md Part II）
+
+**输入**: plan.md Part II 补充规划（2026-04-26）
+**目标**: 在 Phase 1–7 基础上，补充 MCP Server 管理层、工具库改造、Skill 完整配置、Agent 多 Tab 生产级配置
+
+**现状说明**:
+- `SkillView.vue` / `AgentView.vue` 已独立存在，无需从插件广场分离
+- 本阶段**新增** MCPServer 实体层，**改造**现有视图以达到生产级配置深度
+- Tool 模型已在本 PR 中加入 `auth_type`/`auth_config`，本阶段继续补充 `mcp_server_id`
+
+---
+
+### Phase 8-A：MCP Server 管理（后端）
+
+**优先级：P1（基础设施，后续模块依赖）**
+
+- [ ] S01 [P] 创建 `backend/src/models/mcp_server.py`：MCPServer 模型，字段：id、name、display_name、description、transport_type（ENUM: STDIO/HTTP_SSE）、command、args（JSON）、env_vars（JSON，加密）、endpoint_url、auth_type（ENUM: NONE/API_KEY/BEARER_TOKEN/BASIC_AUTH）、auth_config（JSON，加密）、status（ENUM: UNKNOWN/CONNECTED/DISCONNECTED/ERROR）、last_connected_at、enabled、created_at、updated_at
+- [ ] S02 更新 `backend/src/models/tool.py`：新增 `mcp_server_id`（BIGINT FK → mcp_servers.id，nullable）和 `mcp_tool_name`（VARCHAR 128，nullable）字段
+- [ ] S03 [P] 更新 `backend/src/models/__init__.py`：导出 MCPServer
+- [ ] S04 生成 Alembic 迁移：`alembic revision --autogenerate -m "add_mcp_server_and_tool_fields"`，验证迁移文件包含 mcp_servers 建表 + tools 表增列 + skill/agent 增列（S03 依赖 S01/S02 完成后执行）
+- [ ] S05 实现 `backend/src/services/mcp_server_service.py`：CRUD（list/get/create/update/delete/toggle）；`connect(server_id)` → HTTP_SSE 时发 GET 探测，STDIO 时验证 command 可执行，返回 `{status, latency_ms, error}`；`discover_tools(server_id)` → 调用 MCP 协议 `tools/list`，将结果批量 upsert 到 Tool 表（绑定 mcp_server_id，设 mcp_tool_name、name、description、input_schema）
+- [ ] S06 实现 `backend/src/api/v1/mcp_servers.py`：`GET /mcp-servers`（分页+keyword+enabled）、`POST`、`GET /{id}`、`PUT /{id}`、`DELETE /{id}`、`PATCH /{id}/toggle`、`POST /{id}/connect`（返回连接状态）、`POST /{id}/discover`（返回 `{discovered: int, updated: int}`）
+- [ ] S07 更新 `backend/src/api/v1/router.py`：注册 `mcp_servers` 路由，prefix="/mcp-servers"
+- [ ] S08 更新 `backend/src/api/v1/tools.py`：`GET /tools` 新增 `mcp_server_id: int | None` 查询参数，传入时过滤工具
+
+**Checkpoint**: `POST /api/v1/mcp-servers` 创建 Server → `POST /api/v1/mcp-servers/{id}/connect` 返回状态 → `GET /api/v1/tools?mcp_server_id={id}` 返回该 Server 下工具
+
+---
+
+### Phase 8-B：MCP Server 管理（前端）
+
+**依赖**: Phase 8-A 完成
+
+- [ ] S09 [P] 创建 `frontend/src/stores/mcpServers.ts`：Pinia store，actions：fetchServers、createServer、updateServer、deleteServer、toggleServer、connectServer、discoverTools；state：servers（列表）、loading、connecting（Record<id, bool>）、discovering（Record<id, bool>）
+- [ ] S10 创建 `frontend/src/views/MCPServersView.vue`：
+  - 卡片网格：每张卡片显示 Server 名称、传输类型标签、连接状态（🟢/🔴/🟡 + 最后连接时间）、已发现工具数
+  - 操作按钮：测试连接（触发 connect，显示 loading）、发现工具（触发 discover，显示新增工具数 Toast）、编辑、删除、启用/禁用开关
+  - 新增/编辑弹窗（`el-dialog`，宽 600px）分两模式：
+    - STDIO：command 输入框、args（动态增删的字符串列表）、env_vars（键值对编辑器，值字段 type=password）
+    - HTTP_SSE：endpoint_url 输入框 + auth_type 选择 + 条件渲染 auth_config（复用 MCPView 的认证配置字段逻辑）
+- [ ] S11 更新 `frontend/src/router/index.ts`：新增路由 `{ path: 'mcp-servers', name: 'mcp-servers', component: MCPServersView, meta: { title: 'MCP 服务' } }`
+- [ ] S12 更新侧边栏（`DefaultLayout.vue` 或 nav 组件）：在"工具库"之前添加"MCP 服务"导航入口
+
+**Checkpoint**: MCPServersView 可新增 Server → 测试连接 → 发现工具 → 工具库页面出现该 Server 下工具
+
+---
+
+### Phase 8-C：工具库改造（MCPView）
+
+**依赖**: Phase 8-A 完成（mcp_server_id 查询参数）
+
+- [ ] S13 更新 `frontend/src/views/MCPView.vue`：
+  - 页面标题改为"工具库"，描述改为"管理所有可用工具，包括 MCP Server 工具和手动添加工具"
+  - 筛选栏新增"来源 Server"下拉（加载 MCPServer 列表）；选择 Server 后 `fetchItems` 传 `mcp_server_id`
+  - 工具卡片（MarketplaceCard）：来自 MCP Server 的工具显示 Server 名标签（灰色 tag）；endpoint_url 字段对 mcp_server_id != null 的工具只读展示，不允许编辑
+  - 更新"添加工具"弹窗的协议说明文字：BUILTIN/HTTP 类型可手动添加，MCP 类型建议通过 MCP Server 发现
+
+**Checkpoint**: 工具库按 Server 筛选正常工作；MCP Server 工具显示来源标签
+
+---
+
+### Phase 8-D：Skill 管理补充
+
+**依赖**: S04（Alembic 迁移）
+
+- [ ] S14 [P] 更新 `backend/src/models/skill.py`：新增 `category`（VARCHAR 64，DEFAULT 'general'）和 `author`（VARCHAR 128，DEFAULT '系统官方'）字段
+- [ ] S15 [P] 更新 `backend/src/api/v1/skills.py`：`SkillCreate`/`SkillUpdate` 新增 `category`/`author` 字段；`GET /skills` 新增 `category` 查询参数
+- [ ] S16 更新 `frontend/src/views/SkillView.vue`：
+  - 表格新增列：版本（`version`）、分类（`category`，el-tag 样式）、作者（`author`）
+  - 筛选栏新增"分类"下拉（选项：全部/场景技能/基础技能/安全技能，可配置）
+  - 新建/编辑弹窗新增字段：分类（el-select）、触发条件（`trigger_condition`，textarea，placeholder 说明何时触发此技能）、作者（el-input）
+  - 版本字段在编辑弹窗中可选填（默认 v1.0.0）
+
+**Checkpoint**: 新建 Skill 时可设置 category → 表格按 category 筛选正常工作
+
+---
+
+### Phase 8-E：Agent 工作流编排补充
+
+**依赖**: S04（Alembic 迁移）；Phase 8-A（工具按 Server 筛选，供工具绑定 Tab 使用）
+
+- [ ] S17 [P] 更新 `backend/src/models/agent.py`：新增字段：
+  - `status`（ENUM: draft/published，DEFAULT 'draft'）
+  - `temperature`（FLOAT，DEFAULT 0.7）
+  - `max_tokens`（INT，DEFAULT 2048）
+  - `intent_recognition_enabled`（BOOLEAN，DEFAULT FALSE）
+  - `intent_model_id`（BIGINT FK → llm_models.id，nullable）
+  - `intent_confidence_threshold`（FLOAT，DEFAULT 0.85）
+  - `intent_system_prompt`（TEXT，nullable）
+  - `intent_entity_schema`（JSON，nullable）
+  - `routing_strategy`（ENUM: smart/intent_rule，DEFAULT 'smart'）
+  - `routing_model_id`（BIGINT FK → llm_models.id，nullable）
+  - `routing_system_prompt`（TEXT，nullable）
+  - `routing_threshold`（FLOAT，DEFAULT 0.8）
+  - `routing_intent_rules`（JSON，nullable）
+- [ ] S18 [P] 更新 `backend/src/api/v1/agents.py`：`AgentCreate`/`AgentUpdate` 同步新增上述所有字段；`_to_dict` 包含新字段；新增 `PATCH /{id}/publish` 和 `PATCH /{id}/unpublish` 端点（更新 status 字段）
+- [ ] S19 重构 `frontend/src/views/AgentView.vue`：
+  - 列表页调整：
+    - 新增"发布状态"列（draft=草稿/published=已发布），操作栏增加"发布/下架"按钮
+    - 类型列增加颜色区分（SINGLE=蓝、ORCHESTRATOR=紫、SUB=橙）
+  - 将现有"新建/编辑 Dialog（600px）"改为**右侧抽屉（el-drawer，宽 720px）**
+  - 抽屉内使用 `el-tabs` 实现多 Tab 配置，Tab 列表按类型动态显示：
+
+  **Tab 1：基础配置**（所有类型）
+  - 名称、类型选择（单 Agent/编排 Agent/子 Agent）、描述
+  - 来源平台（本地/第三方）；第三方时显示 access_url + 连通性测试按钮 + access_token
+
+  **Tab 2：LLM 模型**（所有类型）
+  - 绑定 LLM 模型下拉（从 `/models-config` 加载）
+  - system_prompt 文本域
+  - temperature 滑块（0.0 ~ 2.0，步进 0.1）
+  - max_tokens 数字输入框（256 ~ 8192）
+
+  **Tab 3：意图识别**（仅 SINGLE 类型）
+  - 启用开关（`intent_recognition_enabled`）；关闭时 Tab 其余内容灰化
+  - 识别 LLM 下拉（从模型列表选）
+  - 置信度阈值滑块（0.5 ~ 1.0，步进 0.05）
+  - 系统提示词文本域（带默认值提示）
+  - 实体 Schema 编辑器：动态表格（name/type/required/desc），支持增删行
+
+  **Tab 4：工具绑定**（仅 SINGLE 类型）
+  - 左侧：可用工具列表（带 MCP Server 分组筛选）
+  - 右侧：已绑定工具列表（可拖拽排序或上下移动）
+  - 使用 `el-transfer` 或自定义双栏布局
+
+  **Tab 5：技能绑定**（仅 SINGLE 类型）
+  - 多选技能（`el-select` + `multiple`，filterable）
+
+  **Tab 6：编排器配置**（仅 ORCHESTRATOR 类型）
+  - 编排 LLM 选择
+  - 编排系统提示词（说明：此为大 Agent 归纳汇总用的提示词）
+
+  **Tab 7：路由配置**（仅 ORCHESTRATOR 类型）
+  - 路由策略选择（智能路由/意图规则路由）
+  - 路由 LLM 选择
+  - 路由系统提示词（带默认模板）
+  - 置信度阈值滑块
+
+  **Tab 8：路由规则**（仅 ORCHESTRATOR + intent_rule 策略时显示）
+  - 规则列表表格（意图名、关键词 tag 输入、目标 Agent 多选、优先级数字）
+  - 支持增删行、拖拽排序
+
+  **Tab 9：子 Agent**（仅 ORCHESTRATOR 类型）
+  - 已绑定子 Agent 列表（名称、类型、状态），支持增加/移除
+  - 调用顺序（可拖拽排序，映射 `order_index`）
+
+  **Tab 10：检测规则**（所有类型）
+  - 前置规则多选、后置规则多选（从 DetectionRule 列表加载）
+
+**Checkpoint**: 新建 ORCHESTRATOR 类型 Agent → 配置路由规则和子 Agent → 保存 → 发布 → WorkflowView 中该 Agent 可被 Pipeline 选用
+
+---
+
+## Phase 8 任务统计
+
+| 子阶段 | 任务数 | 优先级 |
+|--------|--------|--------|
+| 8-A：MCP Server 后端 | S01~S08（8 个）| P1 |
+| 8-B：MCP Server 前端 | S09~S12（4 个）| P1 |
+| 8-C：工具库改造 | S13（1 个）| P2 |
+| 8-D：Skill 管理补充 | S14~S16（3 个）| P2 |
+| 8-E：Agent 配置补充 | S17~S19（3 个）| P2 |
+| **合计** | **19 个** | |
+
+**并行机会**：
+- S01/S02/S03 可并行（不同文件）
+- 8-D（Skill）和 8-A（MCPServer 后端）可并行进行（互不依赖）
+- S17/S18（Agent 后端）可与 8-B/8-C 并行进行
+
+---
+
 ## 注意事项
 
 - `[P]` 任务 = 不同文件、无未完成依赖，可并行执行

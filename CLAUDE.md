@@ -40,3 +40,6 @@
 - 目标文件：[文件路径]
 - 具体指令：[详细的代码生成指令]
 - 上下文：[需要参考的现有代码或规范]
+
+## Recent Changes
+- 001-agent-dispatch-platform: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
