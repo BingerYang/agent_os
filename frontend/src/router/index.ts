@@ -31,7 +31,8 @@ const router = createRouter({
       redirect: '/workflow',
       children: [
         { path: 'workflow', name: 'workflow', component: () => import('@/views/WorkflowView.vue'), meta: { title: 'Agent 工作流' } },
-        { path: 'mcp', name: 'mcp', component: () => import('@/views/MCPView.vue'), meta: { title: '插件广场' } },
+        { path: 'mcp-servers', name: 'mcp-servers', component: () => import('@/views/MCPServersView.vue'), meta: { title: 'MCP 服务' } },
+        { path: 'mcp', name: 'mcp', component: () => import('@/views/MCPView.vue'), meta: { title: '工具库' } },
         { path: 'skills', name: 'skills', component: () => import('@/views/SkillView.vue'), meta: { title: 'Skill 管理' } },
         { path: 'pipelines', name: 'pipelines', component: () => import('@/views/PipelineView.vue'), meta: { title: '检测规则管理' } },
         { path: 'models', name: 'models', component: () => import('@/views/ModelView.vue'), meta: { title: '模型配置' } },

@@ -69,7 +69,8 @@ export const agentApi = {
   update: (id: number, data: object) => http.put(`/agents/${id}`, data),
   delete: (id: number) => http.delete(`/agents/${id}`),
   toggle: (id: number, enabled: boolean) => http.patch(`/agents/${id}/toggle`, { enabled }),
-  ping: (id: number) => http.post(`/agents/${id}/ping`)
+  ping: (id: number) => http.post(`/agents/${id}/ping`),
+  publish: (id: number, status: string) => http.patch(`/agents/${id}/publish`, { status }),
 }
 
 // 流水线管理
@@ -103,4 +104,16 @@ export const marketplaceApi = {
 // 查询
 export const queryApi = {
   submit: (data: object) => http.post('/query', data)
+}
+
+// MCP Server 管理
+export const mcpServerApi = {
+  list: (params?: object) => http.get('/mcp-servers', { params }),
+  create: (data: object) => http.post('/mcp-servers', data),
+  get: (id: number) => http.get(`/mcp-servers/${id}`),
+  update: (id: number, data: object) => http.put(`/mcp-servers/${id}`, data),
+  delete: (id: number) => http.delete(`/mcp-servers/${id}`),
+  toggle: (id: number, enabled: boolean) => http.patch(`/mcp-servers/${id}/toggle`, { enabled }),
+  connect: (id: number) => http.post(`/mcp-servers/${id}/connect`),
+  discover: (id: number) => http.post(`/mcp-servers/${id}/discover`),
 }

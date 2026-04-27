@@ -17,6 +17,8 @@ class SkillCreate(BaseModel):
     trigger_condition: str | None = None
     tags: list | None = None
     version: str = "v1.0.0"
+    category: str = "general"
+    author: str = "系统官方"
     tool_ids: list[int] = []
 
 
@@ -26,6 +28,8 @@ class SkillUpdate(BaseModel):
     trigger_condition: str | None = None
     tags: list | None = None
     version: str | None = None
+    category: str | None = None
+    author: str | None = None
     enabled: bool | None = None
     tool_ids: list[int] | None = None
 
@@ -44,11 +48,12 @@ def _to_dict(obj: Any) -> dict:
 async def list_skills(
     enabled: bool | None = None,
     keyword: str | None = None,
+    category: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    items, total = await _svc.list(db, enabled=enabled, keyword=keyword, page=page, page_size=page_size)
+    items, total = await _svc.list(db, enabled=enabled, keyword=keyword, category=category, page=page, page_size=page_size)
     return ApiResponse.ok(PageResult(items=[_to_dict(i) for i in items], total=total, page=page, page_size=page_size))
 
 

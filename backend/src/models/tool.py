@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, DateTime, Enum, JSON, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Enum, ForeignKey, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import enum
 from src.core.database import Base
@@ -32,6 +32,8 @@ class Tool(Base):
     # BEARER_TOKEN: {token}
     # BASIC_AUTH: {username, password}
     auth_config: Mapped[dict | None] = mapped_column(JSON)
+    mcp_server_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("mcp_servers.id", ondelete="SET NULL"))
+    mcp_tool_name: Mapped[str | None] = mapped_column(String(128))
     input_schema: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     output_schema: Mapped[dict | None] = mapped_column(JSON)
     source_platform: Mapped[str] = mapped_column(String(128), default="local")
@@ -43,3 +45,4 @@ class Tool(Base):
 
     agents: Mapped[list["Agent"]] = relationship("Agent", secondary="agent_tools", back_populates="tools")  # type: ignore[name-defined]
     skills: Mapped[list["Skill"]] = relationship("Skill", secondary="skill_tools", back_populates="tools")  # type: ignore[name-defined]
+    mcp_server: Mapped["MCPServer | None"] = relationship("MCPServer", back_populates="tools")  # type: ignore[name-defined]

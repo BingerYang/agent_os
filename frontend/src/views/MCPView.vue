@@ -1,75 +1,34 @@
 <template>
   <div class="page-container">
     <div class="page-header">
-      <h2>插件广场</h2>
-      <p class="desc">浏览、安装和卸载 Tool / Skill / Agent 子系统</p>
-    </div>
-
-    <div class="stats-bar">
-      <div class="stat-item">
-        <span class="stat-label">工具</span>
-        <span class="stat-value">{{ stats.tool.installed }} / {{ stats.tool.total }}</span>
-      </div>
-      <div class="stat-item">
-        <span class="stat-label">技能</span>
-        <span class="stat-value">{{ stats.skill.installed }} / {{ stats.skill.total }}</span>
-      </div>
-      <div class="stat-item">
-        <span class="stat-label">Agent</span>
-        <span class="stat-value">{{ stats.agent.installed }} / {{ stats.agent.total }}</span>
-      </div>
+      <h2>工具库</h2>
+      <p class="desc">管理工具（Tool），支持按来源 MCP Server 筛选</p>
     </div>
 
     <div class="toolbar">
       <el-input v-model="keyword" placeholder="搜索名称..." clearable style="width: 220px" @keyup.enter="fetchData" @clear="fetchData" />
-      <el-select v-model="filterType" placeholder="全部类型" clearable style="width: 130px" @change="fetchData">
-        <el-option label="工具" value="tool" />
-        <el-option label="技能" value="skill" />
-        <el-option label="Agent" value="agent" />
-      </el-select>
       <el-select v-model="filterEnabled" placeholder="全部状态" clearable style="width: 120px" @change="fetchData">
         <el-option label="已安装" :value="true" />
         <el-option label="未安装" :value="false" />
       </el-select>
+      <el-select v-model="filterMcpServer" placeholder="来源 Server" clearable style="width: 160px" @change="fetchData">
+        <el-option v-for="s in mcpServerOptions" :key="s.id" :label="s.display_name || s.name" :value="s.id" />
+      </el-select>
       <el-button :icon="Refresh" @click="fetchData">刷新</el-button>
-      <el-dropdown @command="handleAddCommand">
-        <el-button type="primary">
-          + 添加&nbsp;<el-icon class="el-icon--right"><ArrowDown /></el-icon>
-        </el-button>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item command="tool">添加工具 (Tool)</el-dropdown-item>
-            <el-dropdown-item command="skill">添加技能 (Skill)</el-dropdown-item>
-            <el-dropdown-item command="agent">注册第三方 Agent</el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
+      <el-button type="primary" @click="addToolVisible = true">+ 添加工具</el-button>
     </div>
 
     <div v-loading="loading" class="card-grid">
       <MarketplaceCard
-        v-for="item in items"
+        v-for="item in filteredItems"
         :key="`${item.item_type}-${item.id}`"
         :item="item"
         :loading="Boolean(installing[`${item.item_type}_${item.id}`])"
         @toggle="handleToggle"
         @delete="handleDelete"
       />
-      <el-empty v-if="!loading && items.length === 0" description="暂无条目" style="grid-column: 1 / -1" />
+      <el-empty v-if="!loading && filteredItems.length === 0" description="暂无条目" style="grid-column: 1 / -1" />
     </div>
-
-    <el-dialog v-model="registerAgentVisible" title="注册第三方 Agent" width="500px" destroy-on-close>
-      <el-form :model="agentForm" :rules="agentRules" ref="agentFormRef" label-width="100px">
-        <el-form-item label="名称" prop="name"><el-input v-model="agentForm.name" /></el-form-item>
-        <el-form-item label="访问地址" prop="access_url"><el-input v-model="agentForm.access_url" placeholder="https://..." /></el-form-item>
-        <el-form-item label="访问令牌"><el-input v-model="agentForm.access_token" type="password" show-password /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="agentForm.description" type="textarea" :rows="2" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="registerAgentVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleRegisterAgent">注册</el-button>
-      </template>
-    </el-dialog>
 
     <el-dialog v-model="addToolVisible" title="添加工具 (Tool)" width="560px" destroy-on-close>
       <el-form :model="toolForm" :rules="toolRules" ref="toolFormRef" label-width="100px">
@@ -117,57 +76,45 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="addSkillVisible" title="添加技能 (Skill)" width="500px" destroy-on-close>
-      <el-form :model="skillForm" :rules="skillRules" ref="skillFormRef" label-width="100px">
-        <el-form-item label="名称" prop="name"><el-input v-model="skillForm.name" placeholder="唯一标识，如 summarize" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="skillForm.description" type="textarea" :rows="2" /></el-form-item>
-        <el-form-item label="触发条件"><el-input v-model="skillForm.trigger_condition" type="textarea" :rows="2" placeholder="描述何时触发此技能" /></el-form-item>
-        <el-form-item label="标签"><el-input v-model="skillForm.tagsRaw" placeholder="逗号分隔，如: nlp,text" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="addSkillVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleAddSkill">添加</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { Refresh, ArrowDown } from '@element-plus/icons-vue'
+import { Refresh } from '@element-plus/icons-vue'
 import MarketplaceCard from '@/components/marketplace/MarketplaceCard.vue'
 import type { MarketplaceItemType, MarketplaceTogglePayload } from '@/stores/marketplace'
 import { useMarketplaceStore } from '@/stores/marketplace'
+import { mcpServerApi } from '@/api/index'
 import { storeToRefs } from 'pinia'
 
 const store = useMarketplaceStore()
 const { items, loading, installing } = storeToRefs(store)
 
 const keyword = ref('')
-const filterType = ref<MarketplaceItemType | null>(null)
 const filterEnabled = ref<boolean | null>(null)
+const filterMcpServer = ref<number | null>(null)
+const mcpServerOptions = ref<Array<{id: number; name: string; display_name: string}>>([])
 const submitting = ref(false)
 
-const stats = computed(() => {
-  const result = {
-    tool: { total: 0, installed: 0 },
-    skill: { total: 0, installed: 0 },
-    agent: { total: 0, installed: 0 },
-  }
-  for (const item of items.value) {
-    const t = result[item.item_type]
-    if (t) { t.total++; if (item.enabled) t.installed++ }
-  }
-  return result
+const filteredItems = computed(() => {
+  const toolItems = items.value.filter((item) => item.item_type === 'tool')
+  if (filterMcpServer.value == null) return toolItems
+
+  const selectedServer = mcpServerOptions.value.find((server) => server.id === filterMcpServer.value)
+  if (!selectedServer) return toolItems
+
+  return toolItems.filter((item) => {
+    const source = item.source_platform?.trim().toLowerCase()
+    return source === selectedServer.name.trim().toLowerCase()
+      || source === selectedServer.display_name.trim().toLowerCase()
+  })
 })
 
-const registerAgentVisible = ref(false)
-const agentFormRef = ref()
-const agentForm = reactive({ name: '', access_url: '', access_token: '', description: '' })
-const agentRules = {
-  name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
-  access_url: [{ required: true, message: '请输入访问地址', trigger: 'blur' }],
+async function fetchMcpServers() {
+  const data = await mcpServerApi.list({ page_size: 100, enabled: true }) as { items?: Array<{id: number; name: string; display_name: string}> }
+  mcpServerOptions.value = data.items || []
 }
 
 const addToolVisible = ref(false)
@@ -193,22 +140,9 @@ const toolRules = {
   protocol: [{ required: true, message: '请选择协议', trigger: 'change' }],
 }
 
-const addSkillVisible = ref(false)
-const skillFormRef = ref()
-const skillForm = reactive({ name: '', description: '', trigger_condition: '', tagsRaw: '' })
-const skillRules = {
-  name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
-}
-
-function handleAddCommand(cmd: string) {
-  if (cmd === 'agent') registerAgentVisible.value = true
-  else if (cmd === 'tool') addToolVisible.value = true
-  else if (cmd === 'skill') addSkillVisible.value = true
-}
-
 async function fetchData() {
   await store.fetchItems({
-    item_type: filterType.value || undefined,
+    item_type: 'tool',
     enabled: filterEnabled.value ?? undefined,
     keyword: keyword.value || undefined,
   })
@@ -233,17 +167,6 @@ async function handleDelete(payload: { id: number; item_type: MarketplaceItemTyp
     await ElMessageBox.confirm('此操作将永久删除该条目，无法恢复。确认删除？', '删除确认', { type: 'error', confirmButtonText: '确认删除', cancelButtonText: '取消' })
   } catch { return }
   await store.deleteItem(payload.item_type, payload.id)
-}
-
-async function handleRegisterAgent() {
-  await agentFormRef.value.validate()
-  submitting.value = true
-  try {
-    await store.registerAgent({ ...agentForm })
-    await fetchData()
-    registerAgentVisible.value = false
-    Object.assign(agentForm, { name: '', access_url: '', access_token: '', description: '' })
-  } finally { submitting.value = false }
 }
 
 async function handleAddTool() {
@@ -289,19 +212,9 @@ async function handleAddTool() {
   } finally { submitting.value = false }
 }
 
-async function handleAddSkill() {
-  await skillFormRef.value.validate()
-  submitting.value = true
-  try {
-    const tags = skillForm.tagsRaw ? skillForm.tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : []
-    await store.createSkill({ name: skillForm.name, description: skillForm.description || undefined, trigger_condition: skillForm.trigger_condition || undefined, tags })
-    await fetchData()
-    addSkillVisible.value = false
-    Object.assign(skillForm, { name: '', description: '', trigger_condition: '', tagsRaw: '' })
-  } finally { submitting.value = false }
-}
-
-onMounted(fetchData)
+onMounted(async () => {
+  await Promise.all([fetchData(), fetchMcpServers()])
+})
 </script>
 
 <style scoped>
@@ -309,10 +222,6 @@ onMounted(fetchData)
 .page-header { margin-bottom: 16px; }
 .page-header h2 { margin: 0 0 4px; font-size: 20px; }
 .desc { margin: 0; color: #666; font-size: 13px; }
-.stats-bar { display: flex; gap: 16px; margin-bottom: 16px; }
-.stat-item { background: white; border-radius: 6px; padding: 10px 20px; display: flex; flex-direction: column; align-items: center; min-width: 100px; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
-.stat-label { font-size: 12px; color: #909399; margin-bottom: 4px; }
-.stat-value { font-size: 18px; font-weight: 600; color: #303133; }
 .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 20px; }
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 </style>

@@ -23,6 +23,19 @@ class AgentCreate(BaseModel):
     access_token: str | None = None
     llm_model_id: int | None = None
     system_prompt: str | None = None
+    status: str = "draft"
+    temperature: float = 0.7
+    max_tokens: int = 2048
+    intent_recognition_enabled: bool = False
+    intent_model_id: int | None = None
+    intent_confidence_threshold: float = 0.85
+    intent_system_prompt: str | None = None
+    intent_entity_schema: list | None = None
+    routing_strategy: str = "smart"
+    routing_model_id: int | None = None
+    routing_system_prompt: str | None = None
+    routing_threshold: float = 0.8
+    routing_intent_rules: list | None = None
     tool_ids: list[int] = []
     skill_ids: list[int] = []
 
@@ -36,6 +49,19 @@ class AgentUpdate(BaseModel):
     access_token: str | None = None
     llm_model_id: int | None = None
     system_prompt: str | None = None
+    status: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    intent_recognition_enabled: bool | None = None
+    intent_model_id: int | None = None
+    intent_confidence_threshold: float | None = None
+    intent_system_prompt: str | None = None
+    intent_entity_schema: list | None = None
+    routing_strategy: str | None = None
+    routing_model_id: int | None = None
+    routing_system_prompt: str | None = None
+    routing_threshold: float | None = None
+    routing_intent_rules: list | None = None
     enabled: bool | None = None
     tool_ids: list[int] | None = None
     skill_ids: list[int] | None = None
@@ -43,6 +69,10 @@ class AgentUpdate(BaseModel):
 
 class ToggleBody(BaseModel):
     enabled: bool
+
+
+class PublishBody(BaseModel):
+    status: str
 
 
 def _to_dict(obj: Any) -> dict:
@@ -93,6 +123,12 @@ async def delete_agent(agent_id: int, db: AsyncSession = Depends(get_db)) -> Any
 @router.patch("/{agent_id}/toggle")
 async def toggle_agent(agent_id: int, body: ToggleBody, db: AsyncSession = Depends(get_db)) -> Any:
     obj = await _svc.toggle(db, agent_id, body.enabled)
+    return ApiResponse.ok(_to_dict(obj))
+
+
+@router.patch("/{agent_id}/publish")
+async def publish_agent(agent_id: int, body: PublishBody, db: AsyncSession = Depends(get_db)) -> Any:
+    obj = await _svc.update(db, agent_id, {"status": body.status})
     return ApiResponse.ok(_to_dict(obj))
 
 

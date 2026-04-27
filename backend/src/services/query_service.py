@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 from src.core.exceptions import BusinessValidationError, ResourceNotFound
 from src.models.pipeline import Pipeline, PipelineType
 from src.models.agent import Agent
+from src.models.tool import Tool
 from src.agents.detection import run_pre_detection, run_post_detection
 from src.agents.intent_router import route_intent
 from src.agents.single_agent import run_single_agent
@@ -23,11 +24,11 @@ async def _load_pipeline(db: AsyncSession, pipeline_id: int) -> Pipeline:
         select(Pipeline)
         .where(Pipeline.id == pipeline_id, Pipeline.enabled == True)
         .options(
-            selectinload(Pipeline.primary_agent).selectinload(Agent.tools),
+            selectinload(Pipeline.primary_agent).selectinload(Agent.tools).selectinload(Tool.mcp_server),
             selectinload(Pipeline.primary_agent).selectinload(Agent.skills),
             selectinload(Pipeline.primary_agent).selectinload(Agent.llm_model),
             selectinload(Pipeline.sub_agents).selectinload(Agent.llm_model),
-            selectinload(Pipeline.sub_agents).selectinload(Agent.tools),
+            selectinload(Pipeline.sub_agents).selectinload(Agent.tools).selectinload(Tool.mcp_server),
             selectinload(Pipeline.detection_rules),
         )
     )

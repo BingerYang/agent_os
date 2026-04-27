@@ -1,3 +1,4 @@
+from src.models.mcp_server import MCPServer, MCPTransportType, MCPAuthType, MCPServerStatus
 from src.models.llm_model import LLMModel
 from src.models.tool import Tool, ToolProtocol
 from src.models.skill import Skill
@@ -8,6 +9,7 @@ from src.models.config_event import ConfigChangeEvent, ObjectType
 from src.models.associations import agent_tools, agent_skills, pipeline_sub_agents, pipeline_detection_rules, skill_tools
 
 __all__ = [
+    "MCPServer", "MCPTransportType", "MCPAuthType", "MCPServerStatus",
     "LLMModel",
     "Tool", "ToolProtocol",
     "Skill",

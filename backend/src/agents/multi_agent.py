@@ -11,7 +11,6 @@ import uuid
 import time
 from typing import Any, TypedDict
 
-from src.core.config import get_settings
 from src.models.agent import Agent
 from src.models.pipeline import Pipeline
 from src.agents.intent_router import route_multi_agent
@@ -28,23 +27,18 @@ class MultiAgentState(TypedDict):
     error: str | None
 
 
-def _build_llm(agent: Agent) -> Any | None:
-    """从 Agent.llm_model 构造 LangChain ChatModel。"""
-    if get_settings().database_url == "sqlite+aiosqlite:///:memory:":
-        return None
+def _build_llm(agent: Agent) -> Any:
+    """从 Agent.llm_model 构造 LangChain ChatModel。失败时抛出异常而非静默返回 None。"""
     if agent.llm_model is None:
-        return None
-    try:
-        from langchain_openai import ChatOpenAI
-        return ChatOpenAI(
-            model=agent.llm_model.model_id,
-            api_key=agent.llm_model.api_key,
-            base_url=getattr(agent.llm_model, "base_url", None),
-            max_completion_tokens=getattr(agent.llm_model, "max_tokens", 2048),
-            temperature=getattr(agent.llm_model, "temperature", 0.7),
-        )
-    except Exception:
-        return None
+        raise ValueError(f"Agent '{agent.name}' 未配置 LLM 模型")
+    from langchain_openai import ChatOpenAI
+    return ChatOpenAI(
+        model=agent.llm_model.model_id,
+        api_key=agent.llm_model.api_key,
+        base_url=getattr(agent.llm_model, "endpoint_url", None),
+        temperature=getattr(agent, "temperature", 0.7),
+        max_completion_tokens=getattr(agent, "max_tokens", 2048),
+    )
 
 
 async def _run_sub_agent(
@@ -55,35 +49,30 @@ async def _run_sub_agent(
     """带超时保护地运行单个子 Agent，超时返回降级响应。"""
     start = time.monotonic()
     try:
+        from deepagents import create_deep_agent
+        from src.agents.single_agent import _build_langchain_tool
+
         llm = _build_llm(agent)
-        if llm is None:
-            answer = f"[Mock] 子Agent '{agent.name}' 收到查询: {query}"
-            tools_called: list[str] = []
-        else:
-            try:
-                from deepagents import create_deep_agent
-                deep_agent = create_deep_agent(
-                    model=llm,
-                    tools=[],
-                    system_prompt=agent.system_prompt or "你是一个智能助手。",
-                )
-                result = await asyncio.wait_for(
-                    deep_agent.ainvoke({"messages": [{"role": "user", "content": query}]}),
-                    timeout=timeout_seconds,
-                )
-                messages = result.get("messages", [])
-                tools_called = []
-                for msg in messages:
-                    if hasattr(msg, "tool_calls") and msg.tool_calls:
-                        for tc in msg.tool_calls:
-                            name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", "")
-                            if name:
-                                tools_called.append(name)
-                last = messages[-1] if messages else None
-                answer = last.content if last and hasattr(last, "content") else "无回复"
-            except ImportError:
-                answer = f"[Mock] 子Agent '{agent.name}' 处理: {query}"
-                tools_called = []
+        lc_tools = [_build_langchain_tool(t) for t in (agent.tools or [])]
+        deep_agent = create_deep_agent(
+            model=llm,
+            tools=lc_tools,
+            system_prompt=agent.system_prompt or "你是一个智能助手。",
+        )
+        result = await asyncio.wait_for(
+            deep_agent.ainvoke({"messages": [{"role": "user", "content": query}]}),
+            timeout=timeout_seconds,
+        )
+        messages = result.get("messages", [])
+        tools_called: list[str] = []
+        for msg in messages:
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                for tc in msg.tool_calls:
+                    name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", "")
+                    if name:
+                        tools_called.append(name)
+        last = messages[-1] if messages else None
+        answer = last.content if last and hasattr(last, "content") else "无回复"
 
         return {
             "agent_id": agent.id,

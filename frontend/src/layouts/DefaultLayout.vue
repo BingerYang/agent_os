@@ -14,8 +14,11 @@
         <el-menu-item index="/workflow">
           <el-icon><Connection /></el-icon><span>Agent 工作流</span>
         </el-menu-item>
+        <el-menu-item index="/mcp-servers">
+          <el-icon><Share /></el-icon><span>MCP 服务</span>
+        </el-menu-item>
         <el-menu-item index="/mcp">
-          <el-icon><Grid /></el-icon><span>插件广场</span>
+          <el-icon><Grid /></el-icon><span>工具库</span>
         </el-menu-item>
         <el-menu-item index="/skills">
           <el-icon><Cpu /></el-icon><span>Skill 管理</span>
@@ -45,7 +48,7 @@
 
 <script setup lang="ts">
 import { useRoute, useRouter } from 'vue-router'
-import { Connection, Grid, Cpu, Bell, Avatar, Setting } from '@element-plus/icons-vue'
+import { Connection, Grid, Cpu, Bell, Avatar, Setting, Share } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()

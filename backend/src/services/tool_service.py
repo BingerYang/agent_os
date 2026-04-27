@@ -30,6 +30,7 @@ class ToolService:
         protocol: str | None = None,
         enabled: bool | None = None,
         keyword: str | None = None,
+        mcp_server_id: int | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[Sequence[Tool], int]:
@@ -40,6 +41,8 @@ class ToolService:
             q = q.where(Tool.enabled == enabled)
         if keyword:
             q = q.where(Tool.name.contains(keyword) | Tool.display_name.contains(keyword))
+        if mcp_server_id is not None:
+            q = q.where(Tool.mcp_server_id == mcp_server_id)
         total_q = select(func.count()).select_from(q.subquery())
         total = (await db.execute(total_q)).scalar_one()
         q = q.offset((page - 1) * page_size).limit(page_size)

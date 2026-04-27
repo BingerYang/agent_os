@@ -53,11 +53,20 @@ async def list_tools(
     protocol: str | None = None,
     enabled: bool | None = None,
     keyword: str | None = None,
+    mcp_server_id: int | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    items, total = await _svc.list(db, protocol=protocol, enabled=enabled, keyword=keyword, page=page, page_size=page_size)
+    items, total = await _svc.list(
+        db,
+        protocol=protocol,
+        enabled=enabled,
+        keyword=keyword,
+        mcp_server_id=mcp_server_id,
+        page=page,
+        page_size=page_size,
+    )
     return ApiResponse.ok(PageResult(items=[_to_dict(i) for i in items], total=total, page=page, page_size=page_size))
 
 

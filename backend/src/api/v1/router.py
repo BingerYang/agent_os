@@ -1,9 +1,10 @@
 from fastapi import APIRouter
 
-from src.api.v1 import models_config, tools, skills, agents, pipelines, detection_rules, marketplace, query, events
+from src.api.v1 import models_config, tools, skills, agents, pipelines, detection_rules, marketplace, query, events, mcp_servers
 
 api_router = APIRouter()
 
+api_router.include_router(mcp_servers.router, prefix="/mcp-servers", tags=["MCP Server 管理"])
 api_router.include_router(models_config.router, prefix="/models", tags=["模型配置"])
 api_router.include_router(models_config.router, prefix="/models-config", tags=["模型配置"])
 api_router.include_router(tools.router, prefix="/tools", tags=["工具管理"])

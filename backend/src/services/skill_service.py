@@ -31,6 +31,7 @@ class SkillService:
         db: AsyncSession,
         enabled: bool | None = None,
         keyword: str | None = None,
+        category: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[Sequence[Skill], int]:
@@ -39,6 +40,8 @@ class SkillService:
             q = q.where(Skill.enabled == enabled)
         if keyword:
             q = q.where(Skill.name.contains(keyword))
+        if category:
+            q = q.where(Skill.category == category)
         total_q = select(func.count()).select_from(q.subquery())
         total = (await db.execute(total_q)).scalar_one()
         q = q.offset((page - 1) * page_size).limit(page_size).options(selectinload(Skill.tools))

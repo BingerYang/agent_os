@@ -7,6 +7,12 @@
 
     <div class="toolbar">
       <SearchBar v-model="search" placeholder="搜索 Skill 名称..." @search="handleSearch" />
+      <el-select v-model="filterCategory" placeholder="全部分类" clearable style="width: 140px" @change="handleSearch">
+        <el-option label="通用" value="general" />
+        <el-option label="场景技能" value="scene" />
+        <el-option label="基础技能" value="basic" />
+        <el-option label="安全技能" value="security" />
+      </el-select>
       <el-button type="primary" @click="openCreate">+ 新建 Skill</el-button>
     </div>
 
@@ -19,6 +25,21 @@
       <el-table-column label="描述" prop="description" min-width="260" show-overflow-tooltip>
         <template #default="{ row }">
           <span>{{ row.description || '-' }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="分类" width="100" align="center">
+        <template #default="{ row }">
+          <el-tag size="small" effect="plain">{{ row.category || 'general' }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="版本" width="90" align="center">
+        <template #default="{ row }">
+          <span class="muted-text">{{ row.version || 'v1.0.0' }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="作者" width="110" align="center">
+        <template #default="{ row }">
+          <span class="muted-text">{{ row.author || '系统官方' }}</span>
         </template>
       </el-table-column>
       <el-table-column label="关联工具数量" width="120" align="center">
@@ -75,6 +96,28 @@
             placeholder="请输入 Skill 描述"
           />
         </el-form-item>
+        <el-form-item label="触发条件">
+          <el-input
+            v-model="form.trigger_condition"
+            type="textarea"
+            :rows="2"
+            placeholder="描述何时触发此技能"
+          />
+        </el-form-item>
+        <el-form-item label="分类">
+          <el-select v-model="form.category" style="width: 100%">
+            <el-option label="通用" value="general" />
+            <el-option label="场景技能" value="scene" />
+            <el-option label="基础技能" value="basic" />
+            <el-option label="安全技能" value="security" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="作者">
+          <el-input v-model="form.author" placeholder="来源/作者标识" />
+        </el-form-item>
+        <el-form-item label="版本">
+          <el-input v-model="form.version" placeholder="如 v1.0.0" />
+        </el-form-item>
         <el-form-item label="关联工具">
           <el-select
             v-model="form.tool_ids"
@@ -120,6 +163,10 @@ interface SkillRow {
   id: number
   name: string
   description?: string
+  trigger_condition?: string
+  category?: string
+  author?: string
+  version?: string
   tool_ids: number[]
   enabled: boolean
   created_at?: string
@@ -128,6 +175,10 @@ interface SkillRow {
 interface SkillForm {
   name: string
   description: string
+  trigger_condition: string
+  category: string
+  author: string
+  version: string
   tool_ids: number[]
 }
 
@@ -136,6 +187,7 @@ const toolOptions = ref<ToolOption[]>([])
 const loading = ref(false)
 const submitting = ref(false)
 const search = ref('')
+const filterCategory = ref('')
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
@@ -146,6 +198,10 @@ const formRef = ref<FormInstance>()
 const form = reactive<SkillForm>({
   name: '',
   description: '',
+  trigger_condition: '',
+  category: 'general',
+  author: '系统官方',
+  version: 'v1.0.0',
   tool_ids: [],
 })
 
@@ -158,6 +214,7 @@ async function fetchData() {
   try {
     const data = await skillApi.list({
       keyword: search.value || undefined,
+      category: filterCategory.value || undefined,
       page: page.value,
       page_size: pageSize.value,
     }) as { items?: SkillRow[]; total?: number }
@@ -178,6 +235,10 @@ function resetForm() {
   Object.assign(form, {
     name: '',
     description: '',
+    trigger_condition: '',
+    category: 'general',
+    author: '系统官方',
+    version: 'v1.0.0',
     tool_ids: [],
   })
 }
@@ -195,6 +256,10 @@ function openEdit(row: SkillRow) {
     name: row.name,
     description: row.description || '',
     tool_ids: [...(row.tool_ids || [])],
+    trigger_condition: row.trigger_condition || '',
+    category: row.category || 'general',
+    author: row.author || '系统官方',
+    version: row.version || 'v1.0.0',
   })
   dialogVisible.value = true
   nextTick(() => formRef.value?.clearValidate())
@@ -209,6 +274,10 @@ async function handleSubmit() {
       name: form.name.trim(),
       description: form.description.trim() || undefined,
       tool_ids: [...form.tool_ids],
+      trigger_condition: form.trigger_condition.trim() || undefined,
+      category: form.category,
+      author: form.author.trim() || undefined,
+      version: form.version.trim() || undefined,
     }
 
     if (editingId.value) {
