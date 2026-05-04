@@ -95,6 +95,12 @@ class AgentService:
         obj.updated_at = datetime.now(timezone.utc)
         return obj
 
+    async def publish(self, db: AsyncSession, agent_id: int, status: str) -> Agent:
+        obj = await self.get(db, agent_id)
+        obj.status = status
+        obj.updated_at = datetime.now(timezone.utc)
+        return obj
+
     async def delete(self, db: AsyncSession, agent_id: int) -> None:
         obj = await self.get(db, agent_id)
         await db.delete(obj)

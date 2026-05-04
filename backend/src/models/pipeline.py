@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import enum
+import uuid as _uuid_lib
 from sqlalchemy import BigInteger, Boolean, DateTime, Enum, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from src.core.database import Base
@@ -14,6 +15,10 @@ class Pipeline(Base):
     __tablename__ = "pipelines"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    uid: Mapped[str] = mapped_column(
+        String(36), unique=True, nullable=False,
+        default=lambda: str(_uuid_lib.uuid4())
+    )
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     pipeline_type: Mapped[PipelineType] = mapped_column(Enum(PipelineType), nullable=False)
     primary_agent_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("agents.id"))

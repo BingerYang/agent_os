@@ -18,7 +18,6 @@ class SubAgentOrderItem(BaseModel):
 
 class PipelineCreate(BaseModel):
     name: str
-    pipeline_type: str = "SINGLE_AGENT"
     primary_agent_id: int | None = None
     route_confidence_threshold: float = 0.7
     timeout_seconds: int = 30
@@ -30,7 +29,6 @@ class PipelineCreate(BaseModel):
 
 class PipelineUpdate(BaseModel):
     name: str | None = None
-    pipeline_type: str | None = None
     primary_agent_id: int | None = None
     route_confidence_threshold: float | None = None
     timeout_seconds: int | None = None
@@ -67,7 +65,9 @@ async def list_pipelines(
 
 @router.post("")
 async def create_pipeline(body: PipelineCreate, db: AsyncSession = Depends(get_db)) -> Any:
-    obj = await _svc.create(db, body.model_dump())
+    data = body.model_dump()
+    data["pipeline_type"] = "MULTI_AGENT" if data.get("sub_agent_ids") else "SINGLE_AGENT"
+    obj = await _svc.create(db, data)
     return ApiResponse.ok(_to_dict(obj))
 
 
@@ -80,6 +80,8 @@ async def get_pipeline(pipeline_id: int, db: AsyncSession = Depends(get_db)) -> 
 @router.put("/{pipeline_id}")
 async def update_pipeline(pipeline_id: int, body: PipelineUpdate, db: AsyncSession = Depends(get_db)) -> Any:
     data = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "sub_agent_ids" in data:
+        data["pipeline_type"] = "MULTI_AGENT" if data["sub_agent_ids"] else "SINGLE_AGENT"
     obj = await _svc.update(db, pipeline_id, data)
     return ApiResponse.ok(_to_dict(obj))
 

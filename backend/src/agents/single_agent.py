@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import uuid
+from datetime import datetime
 from typing import Any
 
 from src.models.agent import Agent
@@ -45,7 +46,7 @@ async def _call_mcp_tool(endpoint_url: str, headers: dict, tool_name: str, argum
 
     async with httpx.AsyncClient(timeout=30.0, headers=headers) as http_client:
         async with streamable_http_client(endpoint_url, http_client=http_client) as (
-            read_stream, write_stream, _
+                read_stream, write_stream, _
         ):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
@@ -116,11 +117,15 @@ def _build_langchain_tool(tool: Tool) -> Any:
     )
 
 
+def build_system_prompt(src_prompt: str):
+    return src_prompt.format(current_date=datetime.now().strftime("%Y-%m-%d"))
+
+
 async def run_single_agent(
-    agent: Agent,
-    query: str,
-    tools: list[Tool],
-    session_id: str | None = None,
+        agent: Agent,
+        query: str,
+        tools: list[Tool],
+        session_id: str | None = None,
 ) -> dict[str, Any]:
     """
     执行单 Agent 调用链。
@@ -146,10 +151,11 @@ async def run_single_agent(
     try:
         from deepagents import create_deep_agent
         from langchain_openai import ChatOpenAI
+        from src.services.llm_model_service import decrypt_api_key
 
         llm = ChatOpenAI(
             model=agent.llm_model.model_id,
-            api_key=agent.llm_model.api_key,
+            api_key=decrypt_api_key(agent.llm_model.api_key),
             base_url=agent.llm_model.endpoint_url or None,
             temperature=agent.temperature,
             max_completion_tokens=agent.max_tokens,
@@ -158,7 +164,7 @@ async def run_single_agent(
         deep_agent = create_deep_agent(
             model=llm,
             tools=lc_tools,
-            system_prompt=agent.system_prompt or "你是一个智能助手，请根据用户查询提供帮助。",
+            system_prompt=build_system_prompt(agent.system_prompt or "你是一个智能助手，请根据用户查询提供帮助。"),
         )
 
         result = await deep_agent.ainvoke({"messages": [{"role": "user", "content": query}]})

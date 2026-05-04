@@ -21,7 +21,7 @@ router = APIRouter()
 
 class QueryRequest(BaseModel):
     query: str
-    pipeline_id: int
+    pipeline_id: str
     stream: bool = False
     session_id: str | None = None
 

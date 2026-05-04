@@ -19,10 +19,10 @@ from src.agents.single_agent import run_single_agent
 from src.services.config_cache import config_cache
 
 
-async def _load_pipeline(db: AsyncSession, pipeline_id: int) -> Pipeline:
+async def _load_pipeline(db: AsyncSession, pipeline_uid: str) -> Pipeline:
     q = (
         select(Pipeline)
-        .where(Pipeline.id == pipeline_id, Pipeline.enabled == True)
+        .where(Pipeline.uid == pipeline_uid, Pipeline.enabled == True)
         .options(
             selectinload(Pipeline.primary_agent).selectinload(Agent.tools).selectinload(Tool.mcp_server),
             selectinload(Pipeline.primary_agent).selectinload(Agent.skills),
@@ -34,7 +34,7 @@ async def _load_pipeline(db: AsyncSession, pipeline_id: int) -> Pipeline:
     )
     pipeline = (await db.execute(q)).scalar_one_or_none()
     if not pipeline:
-        raise ResourceNotFound(f"流水线 {pipeline_id} 不存在或未启用")
+        raise ResourceNotFound(f"流水线 {pipeline_uid} 不存在或未启用")
     return pipeline
 
 
@@ -55,7 +55,7 @@ async def _get_enabled_config(db: AsyncSession) -> tuple[set[int], set[int], set
 
 async def execute_query(
     db: AsyncSession,
-    pipeline_id: int,
+    pipeline_uid: str,
     query: str,
     session_id: str | None = None,
 ) -> dict:
@@ -63,7 +63,7 @@ async def execute_query(
     执行查询流水线，支持 SINGLE_AGENT / MULTI_AGENT。
     返回 dict: {answer, pipeline_type, tools_called, session_id, latency_ms}
     """
-    pipeline = await _load_pipeline(db, pipeline_id)
+    pipeline = await _load_pipeline(db, pipeline_uid)
     enabled_tool_ids, enabled_agent_ids, enabled_rule_ids = await _get_enabled_config(db)
 
     # 拆分前/后置规则

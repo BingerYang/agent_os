@@ -32,9 +32,10 @@ def _build_llm(agent: Agent) -> Any:
     if agent.llm_model is None:
         raise ValueError(f"Agent '{agent.name}' 未配置 LLM 模型")
     from langchain_openai import ChatOpenAI
+    from src.services.llm_model_service import decrypt_api_key
     return ChatOpenAI(
         model=agent.llm_model.model_id,
-        api_key=agent.llm_model.api_key,
+        api_key=decrypt_api_key(agent.llm_model.api_key),
         base_url=getattr(agent.llm_model, "endpoint_url", None),
         temperature=getattr(agent, "temperature", 0.7),
         max_completion_tokens=getattr(agent, "max_tokens", 2048),

@@ -1,5 +1,6 @@
 from typing import Any
 import time
+import uuid as _uuid
 
 import httpx
 from fastapi import APIRouter, Depends, Query
@@ -8,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
 from src.core.schemas import ApiResponse, PageResult
+from src.models.pipeline import Pipeline as _Pipeline
 from src.services.agent_service import AgentService
 
 router = APIRouter()
@@ -86,13 +88,48 @@ def _to_dict(obj: Any) -> dict:
 async def list_agents(
     agent_type: str | None = None,
     enabled: bool | None = None,
+    status: str | None = None,
     keyword: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    items, total = await _svc.list(db, agent_type=agent_type, enabled=enabled, keyword=keyword, page=page, page_size=page_size)
-    return ApiResponse.ok(PageResult(items=[_to_dict(i) for i in items], total=total, page=page, page_size=page_size))
+    from sqlalchemy import select as _sel
+    items, total = await _svc.list(
+        db,
+        agent_type=agent_type,
+        enabled=enabled,
+        keyword=keyword,
+        page=page,
+        page_size=page_size,
+    )
+    # 批量查询 pipeline_uid
+    agent_ids = [item.id for item in items]
+    pipeline_uid_map: dict[int, str] = {}
+    if agent_ids:
+        rows = (
+            await db.execute(
+                _sel(_Pipeline.primary_agent_id, _Pipeline.uid).where(
+                    _Pipeline.primary_agent_id.in_(agent_ids)
+                )
+            )
+        ).all()
+        pipeline_uid_map = {row[0]: row[1] for row in rows}
+
+    result_items = []
+    for item in items:
+        d = _to_dict(item)
+        d["pipeline_uid"] = pipeline_uid_map.get(item.id)
+        result_items.append(d)
+
+    # status 在内存侧过滤（量小，避免 ORM 改动）
+    if status:
+        result_items = [i for i in result_items if i.get("status") == status]
+        total = len(result_items)
+
+    return ApiResponse.ok(
+        PageResult(items=result_items, total=total, page=page, page_size=page_size)
+    )
 
 
 @router.post("")
@@ -128,8 +165,48 @@ async def toggle_agent(agent_id: int, body: ToggleBody, db: AsyncSession = Depen
 
 @router.patch("/{agent_id}/publish")
 async def publish_agent(agent_id: int, body: PublishBody, db: AsyncSession = Depends(get_db)) -> Any:
-    obj = await _svc.update(db, agent_id, {"status": body.status})
-    return ApiResponse.ok(_to_dict(obj))
+    from sqlalchemy import select as _select
+    from src.models.pipeline import Pipeline, PipelineType
+
+    obj = await _svc.publish(db, agent_id, body.status)
+
+    pipeline_uid = None
+    if body.status == "published":
+        existing = (await db.execute(
+            _select(Pipeline).where(Pipeline.primary_agent_id == agent_id)
+        )).scalar_one_or_none()
+
+        if existing:
+            if not existing.enabled:
+                existing.enabled = True
+            pipeline_uid = existing.uid
+        else:
+            pipeline_type = (
+                PipelineType.MULTI_AGENT
+                if obj.agent_type.value == "ORCHESTRATOR"
+                else PipelineType.SINGLE_AGENT
+            )
+            new_pipeline = Pipeline(
+                uid=str(_uuid.uuid4()),
+                name=f"{obj.name} 流水线",
+                pipeline_type=pipeline_type,
+                primary_agent_id=agent_id,
+                enabled=True,
+            )
+            db.add(new_pipeline)
+            await db.flush()
+            pipeline_uid = new_pipeline.uid
+    else:
+        existing = (await db.execute(
+            _select(Pipeline).where(Pipeline.primary_agent_id == agent_id)
+        )).scalar_one_or_none()
+        if existing:
+            existing.enabled = False
+            pipeline_uid = existing.uid
+
+    result = _to_dict(obj)
+    result["pipeline_uid"] = pipeline_uid
+    return ApiResponse.ok(result)
 
 
 @router.post("/{agent_id}/ping")
