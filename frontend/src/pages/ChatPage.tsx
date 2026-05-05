@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Input, message } from 'antd'
+import { Button, Collapse, Input, message } from 'antd'
 import { agentApi, normalizeListResponse } from '../api'
 
 type AgentType = 'SINGLE' | 'SUB' | 'ORCHESTRATOR'
@@ -21,6 +21,8 @@ interface MessageItem {
   latency_ms?: number
   tools_called?: string[]
   streaming?: boolean
+  thinking?: string
+  thinking_streaming?: boolean
 }
 
 const agentTypeLabel: Record<AgentType, string> = {
@@ -161,7 +163,18 @@ export default function ChatPage() {
               latency_ms?: number
               tools_called?: string[]
             }
-            if (evt.type === 'answer') {
+            if (evt.type === 'thinking') {
+              const thinkingChunk = evt.content ?? ''
+              if (thinkingChunk) {
+                setMessages(prev =>
+                  prev.map(m =>
+                    m.id === agentMsgId
+                      ? { ...m, thinking: (m.thinking ?? '') + thinkingChunk, thinking_streaming: true }
+                      : m
+                  )
+                )
+              }
+            } else if (evt.type === 'answer') {
               const chunk = evt.content ?? ''
               finalAnswer += chunk
               appendToLastAgent(agentMsgId, chunk)
@@ -172,6 +185,7 @@ export default function ChatPage() {
                 content: evt.answer ?? finalAnswer ?? '（无回复）',
                 latency_ms: latencyMs,
                 tools_called: toolsCalled,
+                thinking_streaming: false,
               })
             } else if (evt.type === 'error') {
               finalizeAgent(agentMsgId, {
@@ -361,6 +375,35 @@ export default function ChatPage() {
                     justifyContent: 'center', fontSize: 16,
                   }}>🤖</div>
                   <div style={{ maxWidth: '72%' }}>
+                    {(msg.thinking || msg.thinking_streaming) && (
+                      <Collapse
+                        size="small"
+                        style={{ marginBottom: 8 }}
+                        items={[{
+                          key: '1',
+                          label: (
+                            <span style={{ fontSize: 12, color: '#7c3aed', fontWeight: 500 }}>
+                              💭 思考过程
+                              {msg.thinking_streaming && (
+                                <span style={{ marginLeft: 6, opacity: 0.6 }}>▌</span>
+                              )}
+                            </span>
+                          ),
+                          children: (
+                            <div style={{
+                              fontSize: 12,
+                              color: '#6b7280',
+                              whiteSpace: 'pre-wrap',
+                              lineHeight: 1.6,
+                              maxHeight: 240,
+                              overflowY: 'auto',
+                            }}>
+                              {msg.thinking ?? ''}
+                            </div>
+                          ),
+                        }]}
+                      />
+                    )}
                     <div style={{
                       padding: '10px 14px',
                       background: isError ? '#fee2e2' : '#fff',

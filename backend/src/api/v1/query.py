@@ -14,7 +14,7 @@ from sse_starlette.sse import EventSourceResponse
 from src.core.database import get_db
 from src.core.exceptions import PreCheckRejected, PostCheckRejected, ResourceNotFound, BusinessValidationError
 from src.core.schemas import ApiResponse
-from src.services.query_service import execute_query
+from src.services.query_service import execute_query, execute_stream_query
 
 router = APIRouter()
 
@@ -44,23 +44,22 @@ async def submit_query(body: QueryRequest, db: AsyncSession = Depends(get_db)) -
 
 
 async def _stream_response(body: QueryRequest, db: AsyncSession) -> EventSourceResponse:
-    """SSE 流式输出（FR-010）"""
+    """SSE 真实流式输出"""
 
     async def event_generator() -> AsyncIterator[dict[str, str]]:
+        import json
         try:
-            result = await execute_query(db, body.pipeline_id, body.query, body.session_id)
-            # 将最终结果以 SSE 格式推送
-            import json
-            yield {"data": json.dumps({"type": "answer", "content": result["answer"]}, ensure_ascii=False)}
-            yield {"data": json.dumps({"type": "done", **result}, ensure_ascii=False)}
-        except PreCheckRejected as e:
-            import json
-            yield {"data": json.dumps({"type": "error", "code": 40301, "message": str(e)}, ensure_ascii=False)}
-        except PostCheckRejected as e:
-            import json
-            yield {"data": json.dumps({"type": "error", "code": 40302, "message": str(e)}, ensure_ascii=False)}
+            async for event in execute_stream_query(
+                db, body.pipeline_id, body.query, body.session_id
+            ):
+                yield {"data": json.dumps(event, ensure_ascii=False)}
         except Exception as e:
-            import json
-            yield {"data": json.dumps({"type": "error", "code": 50000, "message": str(e)}, ensure_ascii=False)}
+            import json as _j
+            yield {
+                "data": _j.dumps(
+                    {"type": "error", "code": 50000, "message": str(e)},
+                    ensure_ascii=False,
+                )
+            }
 
     return EventSourceResponse(event_generator())

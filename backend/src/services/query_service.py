@@ -9,7 +9,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.core.exceptions import BusinessValidationError, ResourceNotFound
+from src.core.exceptions import (
+    BusinessValidationError,
+    PostCheckRejected,
+    PreCheckRejected,
+    ResourceNotFound,
+)
 from src.models.pipeline import Pipeline, PipelineType
 from src.models.agent import Agent
 from src.models.tool import Tool
@@ -116,3 +121,109 @@ async def execute_query(
         "session_id": result["session_id"],
         "latency_ms": result["latency_ms"],
     }
+
+
+async def execute_stream_query(
+    db: AsyncSession,
+    pipeline_uid: str,
+    query: str,
+    session_id: str | None = None,
+):
+    """
+    流式执行查询流水线，逐事件 yield SSE 事件 dict。
+    SINGLE_AGENT: 真实 token 级流式；MULTI_AGENT: 退化为批量推送。
+    """
+    from src.agents.single_agent import stream_single_agent
+
+    pipeline = await _load_pipeline(db, pipeline_uid)
+    enabled_tool_ids, enabled_agent_ids, enabled_rule_ids = await _get_enabled_config(db)
+
+    pre_rules = [r for r in pipeline.detection_rules if r.stage == "PRE" and r.id in enabled_rule_ids]
+    post_rules = [r for r in pipeline.detection_rules if r.stage == "POST" and r.id in enabled_rule_ids]
+    pre_rules.sort(key=lambda r: r.priority)
+    post_rules.sort(key=lambda r: r.priority)
+
+    # 前置检测
+    try:
+        await run_pre_detection(pre_rules, query)
+    except PreCheckRejected as e:
+        yield {"type": "error", "code": 40301, "message": str(e)}
+        return
+
+    if pipeline.pipeline_type == PipelineType.MULTI_AGENT:
+        # P3 延期：退化为批量推送
+        try:
+            result = await execute_query(db, pipeline_uid, query, session_id)
+            yield {"type": "answer", "content": result["answer"]}
+            # 不需要再全文非流式返回
+            # yield {
+            #     "type": "done",
+            #     "answer": result["answer"],
+            #     "tools_called": result["tools_called"],
+            #     "latency_ms": result["latency_ms"],
+            #     "session_id": result["session_id"],
+            # }
+        except PostCheckRejected as e:
+            yield {"type": "error", "code": 40302, "message": str(e)}
+        except Exception as e:
+            yield {"type": "error", "code": 50000, "message": str(e)}
+        return
+
+    # SINGLE_AGENT 真实流式
+    agent = pipeline.primary_agent
+    if not agent:
+        yield {"type": "error", "code": 50001, "message": "流水线未配置 primary_agent"}
+        return
+    if agent.id not in enabled_agent_ids:
+        yield {"type": "error", "code": 50001, "message": "primary_agent 未启用"}
+        return
+
+    tools = [t for t in agent.tools if t.id in enabled_tool_ids]
+
+    # 意图路由
+    intent = await route_intent(query, tools)
+    selected_names = set(intent.selected_tools)
+    effective_tools = [t for t in tools if t.name in selected_names] if selected_names else tools
+
+    accumulated_answer = ""
+    final_event: dict | None = None
+
+    try:
+        async for event in stream_single_agent(agent, query, effective_tools, session_id):
+            etype = event.get("type", "")
+
+            if etype == "__done__":
+                final_event = event
+                break
+            elif etype == "__error__":
+                yield {"type": "error", "code": 50000, "message": event.get("message", "")}
+                return
+            else:
+                # 转发公共事件（answer/thinking/tool_start/tool_end）
+                if etype == "answer":
+                    accumulated_answer += event.get("content", "")
+                yield event
+
+    except Exception as e:
+        yield {"type": "error", "code": 50000, "message": f"流式执行异常：{e}"}
+        return
+
+    if final_event is None:
+        yield {"type": "error", "code": 50000, "message": "Agent 未返回结果"}
+        return
+
+    # 后置检测
+    try:
+        await run_post_detection(post_rules, accumulated_answer)
+    except PostCheckRejected as e:
+        yield {"type": "error", "code": 40302, "message": str(e)}
+        return
+
+    # 不需要再全文非流式返回
+    # yield {
+    #     "type": "done",
+    #     "answer": final_event.get("answer", accumulated_answer),
+    #     "tools_called": final_event.get("tools_called", []),
+    #     "latency_ms": final_event.get("latency_ms", 0),
+    #     "session_id": final_event.get("session_id", ""),
+    # }

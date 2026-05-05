@@ -7,8 +7,12 @@ from __future__ import annotations
 
 import base64
 import uuid
+from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
+
+from pydantic import Field as PydanticField
+from pydantic import create_model
 
 from src.models.agent import Agent
 from src.models.tool import Tool, ToolProtocol, ToolAuthType
@@ -121,6 +125,79 @@ def build_system_prompt(src_prompt: str):
     return src_prompt.format(current_date=datetime.now().strftime("%Y-%m-%d"))
 
 
+async def _build_tools_with_real_mcp_schemas(tools: list[Tool]) -> list[Any]:
+    """Build LangChain tools; for MCP tools fetch real input schema from the server."""
+    import httpx
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+    from langchain_core.tools import StructuredTool
+    from src.services.mcp_server_service import MCPServerService
+
+    # Partition tools
+    mcp_server_map: dict[str, tuple[dict, list[Tool]]] = {}
+    other_tools: list[Tool] = []
+
+    for tool in tools:
+        if tool.protocol == ToolProtocol.MCP and tool.mcp_server and tool.mcp_server.endpoint_url:
+            key = tool.mcp_server.endpoint_url
+            if key not in mcp_server_map:
+                mcp_server_map[key] = (MCPServerService.build_header(tool.mcp_server), [])
+            mcp_server_map[key][1].append(tool)
+        else:
+            other_tools.append(tool)
+
+    result: list[Any] = [_build_langchain_tool(t) for t in other_tools]
+
+    for endpoint, (headers, server_tools) in mcp_server_map.items():
+        # Map mcp_tool_name -> local Tool
+        name_map: dict[str, Tool] = {(t.mcp_tool_name or t.name): t for t in server_tools}
+        try:
+            async with httpx.AsyncClient(timeout=15.0, headers=headers) as http_client:
+                async with streamable_http_client(endpoint, http_client=http_client) as (
+                    read_stream, write_stream, _
+                ):
+                    async with ClientSession(read_stream, write_stream) as session:
+                        await session.initialize()
+                        tool_list = await session.list_tools()
+
+            matched: set[str] = set()
+            for tool_def in tool_list.tools:
+                if tool_def.name not in name_map:
+                    continue
+                matched.add(tool_def.name)
+                local_tool = name_map[tool_def.name]
+                real_schema: dict = getattr(tool_def, "inputSchema", None) or {}
+
+                _ep = endpoint
+                _hd = headers
+                _mn = tool_def.name
+
+                async def _run(_e: str = _ep, _h: dict = _hd, _n: str = _mn, **kwargs: Any) -> str:
+                    try:
+                        return await _call_mcp_tool(_e, _h, _n, kwargs)
+                    except Exception as ex:
+                        return f"[ERROR] 工具 {_n} 调用失败: {ex}"
+
+                result.append(StructuredTool.from_function(
+                    coroutine=_run,
+                    name=local_tool.name,
+                    description=tool_def.description or local_tool.description or local_tool.display_name,
+                    args_schema=real_schema,
+                ))
+
+            # Fallback for tools not found on server
+            for mcp_name, local_tool in name_map.items():
+                if mcp_name not in matched:
+                    result.append(_build_langchain_tool(local_tool))
+
+        except Exception:
+            # Server unreachable – fall back to local schema
+            for t in server_tools:
+                result.append(_build_langchain_tool(t))
+
+    return result
+
+
 async def run_single_agent(
         agent: Agent,
         query: str,
@@ -145,7 +222,7 @@ async def run_single_agent(
             "latency_ms": int((time.monotonic() - start) * 1000),
         }
 
-    lc_tools = [_build_langchain_tool(t) for t in tools]
+    lc_tools = await _build_tools_with_real_mcp_schemas(tools)
     tools_called: list[str] = []
 
     try:
@@ -186,6 +263,111 @@ async def run_single_agent(
 
     return {
         "answer": answer,
+        "tools_called": list(dict.fromkeys(tools_called)),
+        "session_id": sid,
+        "latency_ms": int((time.monotonic() - start) * 1000),
+    }
+
+
+async def stream_single_agent(
+    agent: "Agent",
+    query: str,
+    tools: "list[Tool]",
+    session_id: str | None = None,
+) -> "AsyncIterator[dict[str, Any]]":
+    """
+    流式执行单 Agent，逐事件 yield：
+    - {type: "thinking",   content: str}   ← 思考型模型专属
+    - {type: "answer",     content: str}   ← LLM token chunk
+    - {type: "tool_start", tool: str}
+    - {type: "tool_end",   tool: str}
+    - {type: "__done__",   answer, thinking, tools_called, session_id, latency_ms}
+    - {type: "__error__",  message: str}
+    """
+    import time
+    from collections.abc import AsyncIterator as _AI
+    start = time.monotonic()
+    sid = session_id or f"sess_{uuid.uuid4().hex[:8]}"
+
+    if agent.llm_model is None:
+        yield {"type": "__done__", "answer": "Agent 未配置 LLM 模型，无法处理查询。",
+               "thinking": "", "tools_called": [], "session_id": sid,
+               "latency_ms": int((time.monotonic() - start) * 1000)}
+        return
+
+    lc_tools = await _build_tools_with_real_mcp_schemas(tools)
+    accumulated_answer = ""
+    accumulated_thinking = ""
+    tools_called: list[str] = []
+
+    try:
+        from deepagents import create_deep_agent
+        from langchain_openai import ChatOpenAI
+        from src.services.llm_model_service import decrypt_api_key
+
+        llm = ChatOpenAI(
+            model=agent.llm_model.model_id,
+            api_key=decrypt_api_key(agent.llm_model.api_key),
+            base_url=agent.llm_model.endpoint_url or None,
+            temperature=agent.temperature,
+            max_completion_tokens=agent.max_tokens,
+            streaming=True,
+        )
+
+        deep_agent = create_deep_agent(
+            model=llm,
+            tools=lc_tools,
+            system_prompt=agent.system_prompt or "你是一个智能助手，请根据用户查询提供帮助。",
+        )
+
+        async for event in deep_agent.astream_events(
+            {"messages": [{"role": "user", "content": query}]},
+            version="v2",
+        ):
+            etype = event.get("event", "")
+
+            if etype == "on_chat_model_stream":
+                chunk = event["data"].get("chunk")
+                if chunk is None:
+                    continue
+                content = chunk.content
+                if isinstance(content, list):
+                    for item in content:
+                        if not isinstance(item, dict):
+                            continue
+                        if item.get("type") == "thinking":
+                            text = item.get("thinking", "")
+                            if text:
+                                accumulated_thinking += text
+                                yield {"type": "thinking", "content": text}
+                        elif item.get("type") == "text":
+                            text = item.get("text", "")
+                            if text:
+                                accumulated_answer += text
+                                yield {"type": "answer", "content": text}
+                elif isinstance(content, str) and content:
+                    accumulated_answer += content
+                    yield {"type": "answer", "content": content}
+
+            elif etype == "on_tool_start":
+                tool_name = event.get("name", "")
+                if tool_name:
+                    yield {"type": "tool_start", "tool": tool_name}
+
+            elif etype == "on_tool_end":
+                tool_name = event.get("name", "")
+                if tool_name:
+                    tools_called.append(tool_name)
+                    yield {"type": "tool_end", "tool": tool_name}
+
+    except Exception as e:
+        yield {"type": "__error__", "message": f"Agent 执行出错：{e}"}
+        return
+
+    yield {
+        "type": "__done__",
+        "answer": accumulated_answer or "（无回复）",
+        "thinking": accumulated_thinking,
         "tools_called": list(dict.fromkeys(tools_called)),
         "session_id": sid,
         "latency_ms": int((time.monotonic() - start) * 1000),
