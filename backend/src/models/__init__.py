@@ -6,7 +6,7 @@ from src.models.agent import Agent, AgentType
 from src.models.pipeline import Pipeline, PipelineType
 from src.models.detection_rule import DetectionRule, DetectionStage, RuleType
 from src.models.config_event import ConfigChangeEvent, ObjectType
-from src.models.associations import agent_tools, agent_skills, pipeline_sub_agents, pipeline_detection_rules, skill_tools
+from src.models.associations import agent_tools, agent_skills, pipeline_detection_rules, skill_tools
 
 __all__ = [
     "MCPServer", "MCPTransportType", "MCPAuthType", "MCPServerStatus",
@@ -17,5 +17,5 @@ __all__ = [
     "Pipeline", "PipelineType",
     "DetectionRule", "DetectionStage", "RuleType",
     "ConfigChangeEvent", "ObjectType",
-    "agent_tools", "agent_skills", "pipeline_sub_agents", "pipeline_detection_rules", "skill_tools",
+    "agent_tools", "agent_skills", "pipeline_detection_rules", "skill_tools",
 ]

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Collapse, Input, message } from 'antd'
 import { agentApi, normalizeListResponse } from '../api'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 type AgentType = 'SINGLE' | 'SUB' | 'ORCHESTRATOR'
 
@@ -411,7 +413,6 @@ export default function ChatPage() {
                       borderRadius: '2px 12px 12px 12px',
                       fontSize: 14, lineHeight: 1.6,
                       color: isError ? '#b91c1c' : '#111827',
-                      whiteSpace: 'pre-wrap',
                       minWidth: 60,
                     }}>
                       {isStreaming ? (
@@ -420,9 +421,71 @@ export default function ChatPage() {
                           <span style={{ animation: 'blink 1s infinite 0.2s' }}>●</span>
                           <span style={{ animation: 'blink 1s infinite 0.4s' }}>●</span>
                         </span>
-                      ) : (
+                      ) : isError ? (
                         <>
                           {msg.content}
+                          {msg.streaming && <span style={{ opacity: 0.5 }}>▌</span>}
+                        </>
+                      ) : (
+                        <>
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              p: ({ children }) => <p style={{ margin: '0 0 8px', lineHeight: 1.7 }}>{children}</p>,
+                              pre: ({ children }) => (
+                                <pre style={{
+                                  background: '#1e293b',
+                                  color: '#e2e8f0',
+                                  padding: '12px 16px',
+                                  borderRadius: 8,
+                                  overflowX: 'auto',
+                                  fontSize: 13,
+                                  lineHeight: 1.6,
+                                  margin: '8px 0',
+                                }}>{children}</pre>
+                              ),
+                              code: ({ children, className }) => (
+                                <code
+                                  className={className}
+                                  style={className ? {} : {
+                                    background: '#f3f4f6',
+                                    padding: '1px 5px',
+                                    borderRadius: 4,
+                                    fontSize: 13,
+                                    fontFamily: 'ui-monospace, monospace',
+                                  }}
+                                >{children}</code>
+                              ),
+                              ul: ({ children }) => <ul style={{ paddingLeft: 20, margin: '4px 0' }}>{children}</ul>,
+                              ol: ({ children }) => <ol style={{ paddingLeft: 20, margin: '4px 0' }}>{children}</ol>,
+                              li: ({ children }) => <li style={{ margin: '2px 0' }}>{children}</li>,
+                              blockquote: ({ children }) => (
+                                <blockquote style={{
+                                  borderLeft: '3px solid #d1d5db',
+                                  paddingLeft: 12,
+                                  margin: '8px 0',
+                                  color: '#6b7280',
+                                }}>{children}</blockquote>
+                              ),
+                              h1: ({ children }) => <h1 style={{ fontSize: 18, fontWeight: 700, margin: '12px 0 6px' }}>{children}</h1>,
+                              h2: ({ children }) => <h2 style={{ fontSize: 16, fontWeight: 600, margin: '10px 0 5px' }}>{children}</h2>,
+                              h3: ({ children }) => <h3 style={{ fontSize: 14, fontWeight: 600, margin: '8px 0 4px' }}>{children}</h3>,
+                              table: ({ children }) => (
+                                <table style={{ borderCollapse: 'collapse', width: '100%', margin: '8px 0', fontSize: 13 }}>{children}</table>
+                              ),
+                              th: ({ children }) => (
+                                <th style={{ border: '1px solid #e5e7eb', padding: '6px 10px', background: '#f9fafb', fontWeight: 600, textAlign: 'left' }}>{children}</th>
+                              ),
+                              td: ({ children }) => (
+                                <td style={{ border: '1px solid #e5e7eb', padding: '6px 10px' }}>{children}</td>
+                              ),
+                              a: ({ href, children }) => (
+                                <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'underline' }}>{children}</a>
+                              ),
+                            }}
+                          >
+                            {msg.content}
+                          </ReactMarkdown>
                           {msg.streaming && <span style={{ opacity: 0.5 }}>▌</span>}
                         </>
                       )}

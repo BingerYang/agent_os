@@ -43,3 +43,4 @@
 
 ## Recent Changes
 - 001-agent-dispatch-platform: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
+- 001-agent-dispatch-platform: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]

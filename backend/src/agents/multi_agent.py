@@ -11,6 +11,7 @@ import uuid
 import time
 from typing import Any, TypedDict
 
+from src.agents.single_agent import _build_tools_with_real_mcp_schemas
 from src.models.agent import Agent
 from src.models.pipeline import Pipeline
 from src.agents.intent_router import route_multi_agent
@@ -43,9 +44,9 @@ def _build_llm(agent: Agent) -> Any:
 
 
 async def _run_sub_agent(
-    agent: Agent,
-    query: str,
-    timeout_seconds: int,
+        agent: Agent,
+        query: str,
+        timeout_seconds: int,
 ) -> dict[str, Any]:
     """带超时保护地运行单个子 Agent，超时返回降级响应。"""
     start = time.monotonic()
@@ -54,7 +55,7 @@ async def _run_sub_agent(
         from src.agents.single_agent import _build_langchain_tool
 
         llm = _build_llm(agent)
-        lc_tools = [_build_langchain_tool(t) for t in (agent.tools or [])]
+        lc_tools = await _build_tools_with_real_mcp_schemas(agent.tools or [])
         deep_agent = create_deep_agent(
             model=llm,
             tools=lc_tools,
@@ -104,9 +105,9 @@ async def _run_sub_agent(
 
 
 async def _aggregate_results(
-    results: list[dict[str, Any]],
-    query: str,
-    orchestrator_llm: Any | None,
+        results: list[dict[str, Any]],
+        query: str,
+        orchestrator_llm: Any | None,
 ) -> str:
     """聚合多个子 Agent 的结果，生成最终回复。"""
     if not results:
@@ -139,11 +140,11 @@ async def _aggregate_results(
 
 
 async def run_multi_agent(
-    pipeline: Pipeline,
-    query: str,
-    session_id: str | None = None,
-    sub_agents: list[Agent] | None = None,
-    orchestrator: Agent | None = None,
+        pipeline: Pipeline,
+        query: str,
+        session_id: str | None = None,
+        sub_agents: list[Agent] | None = None,
+        orchestrator: Agent | None = None,
 ) -> dict[str, Any]:
     """
     执行多 Agent 流水线。
@@ -156,7 +157,7 @@ async def run_multi_agent(
 
     orchestrator = orchestrator if orchestrator is not None else pipeline.primary_agent
     orchestrator_llm = _build_llm(orchestrator) if orchestrator else None
-    sub_agents = list(sub_agents if sub_agents is not None else pipeline.sub_agents or [])
+    sub_agents = list(sub_agents or [])
     timeout = pipeline.timeout_seconds or 30
 
     # 路由：选择目标子 Agent
@@ -172,7 +173,7 @@ async def run_multi_agent(
     if not targets:
         targets = sub_agents
 
-    # 串行执行各子 Agent（按 order_index 排序，通过 pipeline_sub_agents 关联表）
+    # 串行执行各子 Agent
     sub_results: list[dict[str, Any]] = []
     for agent in targets:
         result = await _run_sub_agent(agent, query, timeout)

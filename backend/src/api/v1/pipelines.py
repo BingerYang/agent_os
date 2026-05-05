@@ -46,7 +46,8 @@ class ToggleBody(BaseModel):
 def _to_dict(obj: Any) -> dict:
     d = {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
     d["detection_rule_ids"] = [r.id for r in obj.__dict__.get("detection_rules", [])]
-    d["sub_agent_ids"] = [a.id for a in obj.__dict__.get("sub_agents", [])]
+    primary_agent = obj.__dict__.get("primary_agent")
+    d["sub_agent_ids"] = list(primary_agent.sub_agent_ids or []) if primary_agent else []
     return d
 
 
@@ -68,6 +69,7 @@ async def create_pipeline(body: PipelineCreate, db: AsyncSession = Depends(get_d
     data = body.model_dump()
     data["pipeline_type"] = "MULTI_AGENT" if data.get("sub_agent_ids") else "SINGLE_AGENT"
     obj = await _svc.create(db, data)
+    await db.refresh(obj, attribute_names=["primary_agent", "detection_rules"])
     return ApiResponse.ok(_to_dict(obj))
 
 
@@ -83,6 +85,7 @@ async def update_pipeline(pipeline_id: int, body: PipelineUpdate, db: AsyncSessi
     if "sub_agent_ids" in data:
         data["pipeline_type"] = "MULTI_AGENT" if data["sub_agent_ids"] else "SINGLE_AGENT"
     obj = await _svc.update(db, pipeline_id, data)
+    await db.refresh(obj, attribute_names=["primary_agent", "detection_rules"])
     return ApiResponse.ok(_to_dict(obj))
 
 

@@ -130,7 +130,8 @@ export const agentApi = {
   delete: (id: number) => http.delete(`/agents/${id}`),
   toggle: (id: number, enabled: boolean) => http.patch(`/agents/${id}/toggle`, { enabled }),
   ping: (id: number) => http.post(`/agents/${id}/ping`),
-  publish: (id: number, status: string) => http.patch(`/agents/${id}/publish`, { status }),
+  publish: (id: number, status: string, subAgentIds: number[] = []) =>
+    http.patch(`/agents/${id}/publish`, { status, sub_agent_ids: subAgentIds }),
 }
 
 export const pipelineApi = {

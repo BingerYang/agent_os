@@ -32,8 +32,6 @@ async def _load_pipeline(db: AsyncSession, pipeline_uid: str) -> Pipeline:
             selectinload(Pipeline.primary_agent).selectinload(Agent.tools).selectinload(Tool.mcp_server),
             selectinload(Pipeline.primary_agent).selectinload(Agent.skills),
             selectinload(Pipeline.primary_agent).selectinload(Agent.llm_model),
-            selectinload(Pipeline.sub_agents).selectinload(Agent.llm_model),
-            selectinload(Pipeline.sub_agents).selectinload(Agent.tools).selectinload(Tool.mcp_server),
             selectinload(Pipeline.detection_rules),
         )
     )
@@ -86,7 +84,20 @@ async def execute_query(
     if pipeline.pipeline_type == PipelineType.MULTI_AGENT:
         from src.agents.multi_agent import run_multi_agent
 
-        enabled_sub_agents = [agent for agent in pipeline.sub_agents if agent.id in enabled_agent_ids]
+        raw_sub_agent_ids: list[int] = pipeline.primary_agent.sub_agent_ids or [] if pipeline.primary_agent else []
+        if raw_sub_agent_ids:
+            sub_agents_q = (
+                select(Agent)
+                .where(Agent.id.in_(raw_sub_agent_ids))
+                .options(
+                    selectinload(Agent.llm_model),
+                    selectinload(Agent.tools).selectinload(Tool.mcp_server),
+                )
+            )
+            all_sub_agents = (await db.execute(sub_agents_q)).scalars().all()
+        else:
+            all_sub_agents = []
+        enabled_sub_agents = [a for a in all_sub_agents if a.id in enabled_agent_ids]
         result = await run_multi_agent(
             pipeline,
             query,

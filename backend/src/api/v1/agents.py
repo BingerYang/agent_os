@@ -40,6 +40,7 @@ class AgentCreate(BaseModel):
     routing_intent_rules: list | None = None
     tool_ids: list[int] = []
     skill_ids: list[int] = []
+    sub_agent_ids: list[int] = []
 
 
 class AgentUpdate(BaseModel):
@@ -67,6 +68,7 @@ class AgentUpdate(BaseModel):
     enabled: bool | None = None
     tool_ids: list[int] | None = None
     skill_ids: list[int] | None = None
+    sub_agent_ids: list[int] | None = None
 
 
 class ToggleBody(BaseModel):

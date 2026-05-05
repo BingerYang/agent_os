@@ -44,6 +44,7 @@ class Agent(Base):
     routing_system_prompt: Mapped[str | None] = mapped_column(Text)
     routing_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.8)
     routing_intent_rules: Mapped[list | None] = mapped_column(JSON)
+    sub_agent_ids: Mapped[list] = mapped_column(JSON, default=list)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

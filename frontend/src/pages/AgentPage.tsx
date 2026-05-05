@@ -58,6 +58,7 @@ interface AgentListItem {
   llm_model_id?: number
   source_platform?: string
   pipeline_uid?: string
+  sub_agent_ids?: number[]
 }
 
 interface AgentDetail extends AgentListItem {
@@ -213,15 +214,6 @@ const pickRuleIdsFromSchema = (schema: AgentDetail['intent_entity_schema'], stag
     .filter((id) => Number.isFinite(id))
 }
 
-const pickSubAgentIds = (rules?: AgentDetail['routing_intent_rules']) => {
-  if (!Array.isArray(rules)) return []
-  return rules
-    .filter((item) => Array.isArray(item.sub_agent_ids))
-    .flatMap((item) => item.sub_agent_ids || [])
-    .map((id) => Number(id))
-    .filter((id) => Number.isFinite(id))
-}
-
 const toFormValues = (detail?: Partial<AgentDetail>): AgentFormValues => ({
   ...defaultFormValues,
   ...detail,
@@ -235,7 +227,7 @@ const toFormValues = (detail?: Partial<AgentDetail>): AgentFormValues => ({
   routing_threshold: typeof detail?.routing_threshold === 'number' ? detail.routing_threshold : 0.8,
   tool_ids: detail?.tool_ids || [],
   skill_ids: detail?.skill_ids || [],
-  sub_agent_ids: pickSubAgentIds(detail?.routing_intent_rules),
+  sub_agent_ids: detail?.sub_agent_ids || [],
   pre_rule_ids_text: ruleLinesToText(pickRuleIdsFromSchema(detail?.intent_entity_schema, 'PRE')),
   post_rule_ids_text: ruleLinesToText(pickRuleIdsFromSchema(detail?.intent_entity_schema, 'POST')),
 })
@@ -244,7 +236,6 @@ const buildSubmitPayload = (values: AgentFormValues, currentAgent?: AgentDetail 
   const isOrchestrator = values.agent_type === 'ORCHESTRATOR'
   const preRuleIds = parseIdLines(values.pre_rule_ids_text)
   const postRuleIds = parseIdLines(values.post_rule_ids_text)
-  const existingRules = Array.isArray(currentAgent?.routing_intent_rules) ? currentAgent.routing_intent_rules : []
 
   return {
     name: values.name.trim(),
@@ -270,10 +261,7 @@ const buildSubmitPayload = (values: AgentFormValues, currentAgent?: AgentDetail 
     routing_model_id: isOrchestrator ? values.routing_model_id : undefined,
     routing_threshold: isOrchestrator ? values.routing_threshold : 0.8,
     routing_system_prompt: isOrchestrator ? values.routing_system_prompt?.trim() || '' : '',
-    routing_intent_rules: [
-      ...existingRules.filter((item) => !Array.isArray(item.sub_agent_ids)),
-      { key: 'sub_agents', sub_agent_ids: isOrchestrator ? values.sub_agent_ids : [] },
-    ],
+    sub_agent_ids: isOrchestrator ? values.sub_agent_ids : [],
     tool_ids: !isOrchestrator ? values.tool_ids : [],
     skill_ids: !isOrchestrator ? values.skill_ids : [],
     enabled: values.enabled,
@@ -372,9 +360,12 @@ export default function AgentPage() {
       setDetailLoading(true)
       try {
         const detail = normalizeDetailResponse<AgentDetail>(await agentApi.get(id))
+        const summary = agents.find((item) => item.id === id)
         const normalizedDetail: AgentDetail = {
+          ...summary,
           ...detail,
           status: detail.status || 'draft',
+          sub_agent_ids: detail.sub_agent_ids || summary?.sub_agent_ids || [],
         }
         setEditingAgent(normalizedDetail)
         form.setFieldsValue(toFormValues(normalizedDetail))
@@ -382,7 +373,7 @@ export default function AgentPage() {
         setDetailLoading(false)
       }
     },
-    [form],
+    [agents, form],
   )
 
   useEffect(() => {
@@ -467,7 +458,7 @@ export default function AgentPage() {
 
   const handlePublish = async (agent: AgentListItem) => {
     const newStatus: PublishStatus = agent.status === 'published' ? 'draft' : 'published'
-    const response = await agentApi.publish(agent.id, newStatus)
+    const response = await agentApi.publish(agent.id, newStatus, agent.sub_agent_ids || [])
     const result = normalizeDetailResponse<PublishAgentResponse>(response)
     setAgents((prev) =>
       prev.map((item) =>
@@ -728,37 +719,32 @@ export default function AgentPage() {
       label: '编排配置 🎛️',
       children: (
         <div className="form-section">
-          <div className="form-grid-2">
-            <Form.Item label="路由策略" name="routing_strategy">
-              <Select
-                options={[
-                  { label: '智能路由', value: 'smart' },
-                  { label: '意图规则路由', value: 'intent_rule' },
-                ]}
-              />
-            </Form.Item>
-            <Form.Item label="路由 LLM" name="routing_model_id">
-              <Select
-                allowClear
-                placeholder="请选择路由模型"
-                loading={metaLoading}
-                options={models.map((item) => ({
-                  label: item.supplier ? `${item.name} / ${item.supplier}` : item.name,
-                  value: item.id,
-                }))}
-              />
-            </Form.Item>
-          </div>
+          <Form.Item label="路由 LLM" name="routing_model_id">
+            <Select
+              allowClear
+              placeholder="请选择路由模型"
+              loading={metaLoading}
+              options={models.map((item) => ({
+                label: item.supplier ? `${item.name} / ${item.supplier}` : item.name,
+                value: item.id,
+              }))}
+            />
+          </Form.Item>
           <Form.Item label="置信阈值" name="routing_threshold">
             <Slider min={0} max={1} step={0.01} />
           </Form.Item>
-          <Form.Item label="路由提示词" name="routing_system_prompt">
-            <Input.TextArea rows={6} className="mono-textarea" placeholder="请输入路由提示词" />
-          </Form.Item>
-          <Form.Item label="子 Agent 多选" name="sub_agent_ids">
+        </div>
+      ),
+    })
+    tabItems.push({
+      key: 'sub_agents',
+      label: '子 Agent 🤝',
+      children: (
+        <div className="form-section">
+          <Form.Item label="子 Agent" name="sub_agent_ids">
             <Select
               mode="multiple"
-              placeholder="请选择子 Agent"
+              placeholder="请选择子 Agent（可多选）"
               options={childAgentOptions.map((item) => ({
                 label: item.name,
                 value: item.id,
