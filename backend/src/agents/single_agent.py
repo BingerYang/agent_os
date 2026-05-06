@@ -4,18 +4,20 @@
 封装 MCP/HTTP/BUILTIN 工具调用，返回自然语言汇总。
 """
 from __future__ import annotations
-
+import logging
 import base64
+import re
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Any, Optional
-
+from typing import Any
 from pydantic import Field as PydanticField
 from pydantic import create_model
 
 from src.models.agent import Agent
 from src.models.tool import Tool, ToolProtocol, ToolAuthType
+
+logger = logging.getLogger()
 
 
 def _tool_auth_headers(tool: Tool) -> dict[str, str]:
@@ -125,6 +127,67 @@ def build_system_prompt(src_prompt: str):
     return src_prompt.format(current_date=datetime.now().strftime("%Y-%m-%d"))
 
 
+def _schema_to_python_type(schema: dict[str, Any] | None) -> Any:
+    """Convert a subset of JSON Schema types into Pydantic-compatible annotations."""
+    if not isinstance(schema, dict):
+        return Any
+
+    if "anyOf" in schema or "oneOf" in schema or "allOf" in schema:
+        return Any
+
+    schema_type = schema.get("type")
+    if isinstance(schema_type, list):
+        non_null_types = [item for item in schema_type if item != "null"]
+        if len(non_null_types) == 1:
+            schema_type = non_null_types[0]
+        else:
+            return Any
+
+    if schema_type == "string":
+        return str
+    if schema_type == "integer":
+        return int
+    if schema_type == "number":
+        return float
+    if schema_type == "boolean":
+        return bool
+    if schema_type == "array":
+        return list[_schema_to_python_type(schema.get("items"))]
+    if schema_type == "object":
+        return dict[str, Any]
+    return Any
+
+
+def _build_args_schema(tool_name: str, json_schema: dict[str, Any] | None) -> type[Any] | None:
+    """Build a Pydantic model from MCP inputSchema for StructuredTool.args_schema."""
+    if not isinstance(json_schema, dict):
+        return None
+
+    properties = json_schema.get("properties")
+    if not isinstance(properties, dict) or not properties:
+        return None
+
+    required = set(json_schema.get("required", []))
+    field_defs: dict[str, tuple[Any, Any]] = {}
+
+    for field_name, field_schema in properties.items():
+        if not isinstance(field_schema, dict):
+            field_schema = {}
+
+        annotation = _schema_to_python_type(field_schema)
+        default = ... if field_name in required else field_schema.get("default", None)
+        field_defs[field_name] = (
+            annotation,
+            PydanticField(default=default, description=field_schema.get("description")),
+        )
+
+    if not field_defs:
+        return None
+
+    model_name = "".join(part.capitalize() for part in re.split(r"[^0-9A-Za-z]+", tool_name) if part) or "Tool"
+    return create_model(f"{model_name}Args", **field_defs)
+
+
 async def _build_tools_with_real_mcp_schemas(tools: list[Tool]) -> list[Any]:
     """Build LangChain tools; for MCP tools fetch real input schema from the server."""
     import httpx
@@ -154,7 +217,7 @@ async def _build_tools_with_real_mcp_schemas(tools: list[Tool]) -> list[Any]:
         try:
             async with httpx.AsyncClient(timeout=15.0, headers=headers) as http_client:
                 async with streamable_http_client(endpoint, http_client=http_client) as (
-                    read_stream, write_stream, _
+                        read_stream, write_stream, _
                 ):
                     async with ClientSession(read_stream, write_stream) as session:
                         await session.initialize()
@@ -167,6 +230,7 @@ async def _build_tools_with_real_mcp_schemas(tools: list[Tool]) -> list[Any]:
                 matched.add(tool_def.name)
                 local_tool = name_map[tool_def.name]
                 real_schema: dict = getattr(tool_def, "inputSchema", None) or {}
+                args_schema = _build_args_schema(local_tool.name, real_schema)
 
                 _ep = endpoint
                 _hd = headers
@@ -174,7 +238,8 @@ async def _build_tools_with_real_mcp_schemas(tools: list[Tool]) -> list[Any]:
 
                 async def _run(_e: str = _ep, _h: dict = _hd, _n: str = _mn, **kwargs: Any) -> str:
                     try:
-                        return await _call_mcp_tool(_e, _h, _n, kwargs)
+                        res = await _call_mcp_tool(_e, _h, _n, kwargs)
+                        return res
                     except Exception as ex:
                         return f"[ERROR] 工具 {_n} 调用失败: {ex}"
 
@@ -182,7 +247,7 @@ async def _build_tools_with_real_mcp_schemas(tools: list[Tool]) -> list[Any]:
                     coroutine=_run,
                     name=local_tool.name,
                     description=tool_def.description or local_tool.description or local_tool.display_name,
-                    args_schema=real_schema,
+                    args_schema=args_schema,
                 ))
 
             # Fallback for tools not found on server
@@ -270,22 +335,22 @@ async def run_single_agent(
 
 
 async def stream_single_agent(
-    agent: "Agent",
-    query: str,
-    tools: "list[Tool]",
-    session_id: str | None = None,
+        agent: "Agent",
+        query: str,
+        tools: "list[Tool]",
+        session_id: str | None = None,
 ) -> "AsyncIterator[dict[str, Any]]":
     """
     流式执行单 Agent，逐事件 yield：
     - {type: "thinking",   content: str}   ← 思考型模型专属
     - {type: "answer",     content: str}   ← LLM token chunk
     - {type: "tool_start", tool: str}
-    - {type: "tool_end",   tool: str}
+    - {type: "tool_end",   tool: str, output: str}
+    - {type: "tool_error", tool: str, message: str}
     - {type: "__done__",   answer, thinking, tools_called, session_id, latency_ms}
     - {type: "__error__",  message: str}
     """
     import time
-    from collections.abc import AsyncIterator as _AI
     start = time.monotonic()
     sid = session_id or f"sess_{uuid.uuid4().hex[:8]}"
 
@@ -317,12 +382,12 @@ async def stream_single_agent(
         deep_agent = create_deep_agent(
             model=llm,
             tools=lc_tools,
-            system_prompt=agent.system_prompt or "你是一个智能助手，请根据用户查询提供帮助。",
+            system_prompt=build_system_prompt(agent.system_prompt or "你是一个智能助手，请根据用户查询提供帮助。"),
         )
 
         async for event in deep_agent.astream_events(
-            {"messages": [{"role": "user", "content": query}]},
-            version="v2",
+                {"messages": [{"role": "user", "content": query}]},
+                version="v2",
         ):
             etype = event.get("event", "")
 
@@ -352,15 +417,30 @@ async def stream_single_agent(
             elif etype == "on_tool_start":
                 tool_name = event.get("name", "")
                 if tool_name:
+                    logger.info("Tool started: %s", tool_name)
                     yield {"type": "tool_start", "tool": tool_name}
 
             elif etype == "on_tool_end":
                 tool_name = event.get("name", "")
                 if tool_name:
                     tools_called.append(tool_name)
-                    yield {"type": "tool_end", "tool": tool_name}
+                    raw_output = event.get("data", {}).get("output")
+                    if hasattr(raw_output, "content"):
+                        tool_output = raw_output.content
+                    elif raw_output is not None:
+                        tool_output = str(raw_output)
+                    else:
+                        tool_output = ""
+                    is_error = isinstance(tool_output, str) and tool_output.startswith("[ERROR]")
+                    yield {"type": "tool_end", "tool": tool_name, "output": tool_output}
+                    if is_error:
+                        yield {"type": "tool_error", "tool": tool_name, "message": tool_output}
+                        logger.warning("Tool error: %s => %s", tool_name, tool_output)
+                    else:
+                        logger.info("Tool ended: %s => %s", tool_name, tool_output[:200] if tool_output else "")
 
     except Exception as e:
+        logger.exception(e)
         yield {"type": "__error__", "message": f"Agent 执行出错：{e}"}
         return
 

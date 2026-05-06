@@ -4,6 +4,7 @@
   加载 Pipeline 配置 → PreDetection → Pipeline Dispatch → PostDetection → 构造响应
 """
 from __future__ import annotations
+import logging
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,8 @@ from src.agents.detection import run_pre_detection, run_post_detection
 from src.agents.intent_router import route_intent
 from src.agents.single_agent import run_single_agent
 from src.services.config_cache import config_cache
+
+logger = logging.getLogger()
 
 
 async def _load_pipeline(db: AsyncSession, pipeline_uid: str) -> Pipeline:
@@ -57,10 +60,10 @@ async def _get_enabled_config(db: AsyncSession) -> tuple[set[int], set[int], set
 
 
 async def execute_query(
-    db: AsyncSession,
-    pipeline_uid: str,
-    query: str,
-    session_id: str | None = None,
+        db: AsyncSession,
+        pipeline_uid: str,
+        query: str,
+        session_id: str | None = None,
 ) -> dict:
     """
     执行查询流水线，支持 SINGLE_AGENT / MULTI_AGENT。
@@ -135,10 +138,10 @@ async def execute_query(
 
 
 async def execute_stream_query(
-    db: AsyncSession,
-    pipeline_uid: str,
-    query: str,
-    session_id: str | None = None,
+        db: AsyncSession,
+        pipeline_uid: str,
+        query: str,
+        session_id: str | None = None,
 ):
     """
     流式执行查询流水线，逐事件 yield SSE 事件 dict。
@@ -159,6 +162,7 @@ async def execute_stream_query(
         await run_pre_detection(pre_rules, query)
     except PreCheckRejected as e:
         yield {"type": "error", "code": 40301, "message": str(e)}
+        logger.info("Pre-check failed: %s", e)
         return
 
     if pipeline.pipeline_type == PipelineType.MULTI_AGENT:
@@ -195,6 +199,7 @@ async def execute_stream_query(
     intent = await route_intent(query, tools)
     selected_names = set(intent.selected_tools)
     effective_tools = [t for t in tools if t.name in selected_names] if selected_names else tools
+    logger.info("Effective tools: %s", effective_tools)
 
     accumulated_answer = ""
     final_event: dict | None = None

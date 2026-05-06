@@ -3,6 +3,8 @@
 POST /api/v1/query
 支持同步响应（stream=false）和 SSE 流式输出（stream=true）
 """
+import json
+import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -16,6 +18,7 @@ from src.core.exceptions import PreCheckRejected, PostCheckRejected, ResourceNot
 from src.core.schemas import ApiResponse
 from src.services.query_service import execute_query, execute_stream_query
 
+logger = logging.getLogger()
 router = APIRouter()
 
 
@@ -30,6 +33,7 @@ class QueryRequest(BaseModel):
 async def submit_query(body: QueryRequest, db: AsyncSession = Depends(get_db)) -> Any:
     try:
         if body.stream:
+            logger.info("Streaming response for query: %s", body.query)
             return await _stream_response(body, db)
         result = await execute_query(db, body.pipeline_id, body.query, body.session_id)
         return ApiResponse.ok(result)
@@ -47,16 +51,14 @@ async def _stream_response(body: QueryRequest, db: AsyncSession) -> EventSourceR
     """SSE 真实流式输出"""
 
     async def event_generator() -> AsyncIterator[dict[str, str]]:
-        import json
         try:
             async for event in execute_stream_query(
-                db, body.pipeline_id, body.query, body.session_id
+                    db, body.pipeline_id, body.query, body.session_id
             ):
                 yield {"data": json.dumps(event, ensure_ascii=False)}
         except Exception as e:
-            import json as _j
             yield {
-                "data": _j.dumps(
+                "data": json.dumps(
                     {"type": "error", "code": 50000, "message": str(e)},
                     ensure_ascii=False,
                 )

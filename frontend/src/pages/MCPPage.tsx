@@ -61,6 +61,7 @@ export default function MCPPage() {
   const [saving, setSaving] = useState(false)
   const [keyword, setKeyword] = useState('')
   const [selectedServerId, setSelectedServerId] = useState<number | undefined>(undefined)
+  const [enabledFilter, setEnabledFilter] = useState<'enabled' | 'disabled' | undefined>(undefined)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [total, setTotal] = useState(0)
@@ -85,6 +86,7 @@ export default function MCPPage() {
         page_size: pageSize,
         keyword: keyword.trim() || undefined,
         mcp_server_id: selectedServerId,
+        enabled: enabledFilter === undefined ? undefined : enabledFilter === 'enabled',
       })
       const result = normalizeListResponse<ToolItem>(response)
       setTools(result.items)
@@ -100,7 +102,7 @@ export default function MCPPage() {
 
   useEffect(() => {
     void loadTools()
-  }, [page, pageSize, keyword, selectedServerId])
+  }, [page, pageSize, keyword, selectedServerId, enabledFilter])
 
   const handleCreate = async () => {
     const values = await form.validateFields()
@@ -202,6 +204,20 @@ export default function MCPPage() {
                   label: item.display_name || item.name,
                   value: item.id,
                 }))}
+              />
+              <Select<'enabled' | 'disabled' | undefined>
+                allowClear
+                className="toolbar-filter"
+                placeholder="筛选状态"
+                value={enabledFilter}
+                onChange={(value) => {
+                  setPage(1)
+                  setEnabledFilter(value)
+                }}
+                options={[
+                  { label: '启用', value: 'enabled' },
+                  { label: '禁用', value: 'disabled' },
+                ]}
               />
             </div>
           </div>

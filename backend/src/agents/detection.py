@@ -4,10 +4,13 @@
 检测失败时抛出 PreCheckRejected / PostCheckRejected。
 """
 import re
+import logging
 from typing import Any
 
 from src.core.exceptions import PreCheckRejected, PostCheckRejected
 from src.models.detection_rule import DetectionRule, RuleType
+
+logger = logging.getLogger()
 
 
 def evaluate_keyword_rule(text: str, rule_content: dict[str, Any]) -> bool:
@@ -48,26 +51,28 @@ async def _evaluate_llm_judge(rule: DetectionRule, text: str, llm_model: Any | N
 
 
 async def run_pre_detection(
-    rules: list[DetectionRule],
-    query: str,
-    llm_model: Any | None = None,
+        rules: list[DetectionRule],
+        query: str,
+        llm_model: Any | None = None,
 ) -> None:
     """
     对查询文本执行所有前置检测规则（按 priority 升序）。
     任一规则命中则抛出 PreCheckRejected。
     """
+    logger.info("Running pre-detection for query: %s", query)
     for rule in rules:
         if not rule.enabled:
             continue
         if await evaluate_rule(rule, query, llm_model):
             msg = rule.reject_message or "查询被前置检测拦截"
             raise PreCheckRejected(msg)
+    logger.info("Pre-detection passed for query: %s", query)
 
 
 async def run_post_detection(
-    rules: list[DetectionRule],
-    answer: str,
-    llm_model: Any | None = None,
+        rules: list[DetectionRule],
+        answer: str,
+        llm_model: Any | None = None,
 ) -> None:
     """
     对 Agent 输出执行所有后置检测规则（按 priority 升序）。

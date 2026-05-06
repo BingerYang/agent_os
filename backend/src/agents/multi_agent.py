@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import logging
 import asyncio
 import uuid
 import time
@@ -16,6 +17,7 @@ from src.models.agent import Agent
 from src.models.pipeline import Pipeline
 from src.agents.intent_router import route_multi_agent
 
+logger = logging.getLogger()
 
 class MultiAgentState(TypedDict):
     query: str
@@ -169,6 +171,7 @@ async def run_multi_agent(
     )
 
     target_ids = set(route.target_agent_ids) if route.target_agent_ids else {a.id for a in sub_agents}
+    logger.info(f"Routing {query} to {target_ids}")
     targets = [a for a in sub_agents if a.id in target_ids]
     if not targets:
         targets = sub_agents

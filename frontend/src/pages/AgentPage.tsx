@@ -295,6 +295,7 @@ export default function AgentPage() {
   const [keyword, setKeyword] = useState('')
   const [typeFilter, setTypeFilter] = useState<AgentType | undefined>(undefined)
   const [enabledFilter, setEnabledFilter] = useState<EnabledFilter | undefined>(undefined)
+  const [publishStatusFilter, setPublishStatusFilter] = useState<PublishStatus | undefined>(undefined)
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -341,6 +342,7 @@ export default function AgentPage() {
         keyword: keyword.trim() || undefined,
         agent_type: typeFilter,
         enabled: enabledFilter === undefined ? undefined : enabledFilter === 'enabled',
+        status: publishStatusFilter,
       })
       const result = normalizeListResponse<AgentListItem>(response)
       setAgents(
@@ -353,7 +355,7 @@ export default function AgentPage() {
     } finally {
       setListLoading(false)
     }
-  }, [enabledFilter, keyword, page, typeFilter])
+  }, [enabledFilter, keyword, page, publishStatusFilter, typeFilter])
 
   const loadAgentDetail = useCallback(
     async (id: number) => {
@@ -856,6 +858,20 @@ export default function AgentPage() {
             options={[
               { label: '启用', value: 'enabled' },
               { label: '禁用', value: 'disabled' },
+            ]}
+          />
+          <Select<PublishStatus | undefined>
+            allowClear
+            className="toolbar-filter"
+            placeholder="筛选发布状态"
+            value={publishStatusFilter}
+            onChange={(value) => {
+              setPage(1)
+              setPublishStatusFilter(value)
+            }}
+            options={[
+              { label: '已发布', value: 'published' },
+              { label: '已下架', value: 'draft' },
             ]}
           />
         </div>
