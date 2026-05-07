@@ -42,5 +42,6 @@
 - 上下文：[需要参考的现有代码或规范]
 
 ## Recent Changes
-- 001-agent-dispatch-platform: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
-- 001-agent-dispatch-platform: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
+- 001-agent-dispatch-platform: 初始 Agent 调度平台（FastAPI + SQLAlchemy + deepagents + LangChain 1.0 + MCP）
+- 002-query-llm-streaming: LLM 流式输出（SSE token 级流式，前后置检测保障）
+- 003-backend-split-runtime: backend 拆分为管理端 / 运行时；Redis Stream 热加载；AgentPool/ToolPool/SkillPool/MCPConnectionPool 池化；BaseNode 策略模式；多 Agent 单路由流式修复；新增 redis[asyncio] 依赖
