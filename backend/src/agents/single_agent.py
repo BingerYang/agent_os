@@ -4,18 +4,20 @@
 封装 MCP/HTTP/BUILTIN 工具调用，返回自然语言汇总。
 """
 from __future__ import annotations
-import logging
+
 import base64
+import logging
 import re
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any
+
 from pydantic import Field as PydanticField
 from pydantic import create_model
 
 from src.models.agent import Agent
-from src.models.tool import Tool, ToolProtocol, ToolAuthType
+from src.models.tool import Tool, ToolAuthType, ToolProtocol
 
 logger = logging.getLogger()
 
@@ -191,9 +193,10 @@ def _build_args_schema(tool_name: str, json_schema: dict[str, Any] | None) -> ty
 async def _build_tools_with_real_mcp_schemas(tools: list[Tool]) -> list[Any]:
     """Build LangChain tools; for MCP tools fetch real input schema from the server."""
     import httpx
+    from langchain_core.tools import StructuredTool
     from mcp import ClientSession
     from mcp.client.streamable_http import streamable_http_client
-    from langchain_core.tools import StructuredTool
+
     from src.services.mcp_server_service import MCPServerService
 
     # Partition tools
@@ -293,6 +296,7 @@ async def run_single_agent(
     try:
         from deepagents import create_deep_agent
         from langchain_openai import ChatOpenAI
+
         from src.services.llm_model_service import decrypt_api_key
 
         llm = ChatOpenAI(
@@ -335,11 +339,11 @@ async def run_single_agent(
 
 
 async def stream_single_agent(
-        agent: "Agent",
+        agent: Agent,
         query: str,
-        tools: "list[Tool]",
+        tools: list[Tool],
         session_id: str | None = None,
-) -> "AsyncIterator[dict[str, Any]]":
+) -> AsyncIterator[dict[str, Any]]:
     """
     流式执行单 Agent，逐事件 yield：
     - {type: "thinking",   content: str}   ← 思考型模型专属
@@ -368,6 +372,7 @@ async def stream_single_agent(
     try:
         from deepagents import create_deep_agent
         from langchain_openai import ChatOpenAI
+
         from src.services.llm_model_service import decrypt_api_key
 
         llm = ChatOpenAI(
@@ -452,3 +457,145 @@ async def stream_single_agent(
         "session_id": sid,
         "latency_ms": int((time.monotonic() - start) * 1000),
     }
+
+
+# ---------------------------------------------------------------------------
+# BaseNode 实现：使用 AgentPool 中的预编译图（T026）
+# ---------------------------------------------------------------------------
+
+class SingleAgentNode:
+    """BaseNode 实现：复用 AgentPool 中的预编译图，零数据库读取。
+
+    工具列表已在 AgentPool.build_entry 时注入 compiled_graph，
+    无需每次重新构建；MCP 调用通过 MCPConnectionPool 复用长连接。
+    """
+
+    async def execute(self, context: AgentContext) -> AgentResult:
+        """非流式执行，返回完整 AgentResult。"""
+        import time
+
+        from src.agents.base import AgentResult
+
+        start = time.monotonic()
+        entry = context.agent_pool.get(context.pipeline_config.primary_agent_id)
+        if entry is None:
+            return AgentResult(
+                answer="Agent 未加载（未发布或池中不存在）",
+                session_id=context.session_id,
+                pipeline_type="SINGLE_AGENT",
+            )
+
+        tools_called: list[str] = []
+        try:
+            result = await entry.compiled_graph.ainvoke(
+                {"messages": [{"role": "user", "content": context.query}]}
+            )
+            messages = result.get("messages", [])
+            for msg in messages:
+                if hasattr(msg, "tool_calls") and msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", "")
+                        if name:
+                            tools_called.append(name)
+            last = messages[-1] if messages else None
+            answer = last.content if last and hasattr(last, "content") else "无回复"
+        except Exception as e:
+            answer = f"Agent 执行出错：{e}"
+            tools_called = []
+
+        return AgentResult(
+            answer=answer,
+            tools_called=list(dict.fromkeys(tools_called)),
+            session_id=context.session_id,
+            latency_ms=int((time.monotonic() - start) * 1000),
+            pipeline_type="SINGLE_AGENT",
+        )
+
+    async def stream(self, context: AgentContext) -> AsyncIterator[StreamEvent]:  # type: ignore[override]
+        """流式执行，逐事件 yield StreamEvent。"""
+        import time
+
+        from src.agents.base import StreamEvent
+
+        start = time.monotonic()
+        entry = context.agent_pool.get(context.pipeline_config.primary_agent_id)
+        if entry is None:
+            yield StreamEvent(
+                type="__done__",
+                answer="Agent 未加载（未发布或池中不存在）",
+                tools_called=[],
+                session_id=context.session_id,
+                latency_ms=int((time.monotonic() - start) * 1000),
+            )
+            return
+
+        accumulated_answer = ""
+        tools_called: list[str] = []
+
+        try:
+            async for event in entry.compiled_graph.astream_events(
+                {"messages": [{"role": "user", "content": context.query}]},
+                version="v2",
+            ):
+                etype = event.get("event", "")
+
+                if etype == "on_chat_model_stream":
+                    chunk = event["data"].get("chunk")
+                    if chunk is None:
+                        continue
+                    content = chunk.content
+                    if isinstance(content, list):
+                        for item in content:
+                            if not isinstance(item, dict):
+                                continue
+                            if item.get("type") == "thinking":
+                                text = item.get("thinking", "")
+                                if text:
+                                    yield StreamEvent(type="thinking", content=text)
+                            elif item.get("type") == "text":
+                                text = item.get("text", "")
+                                if text:
+                                    accumulated_answer += text
+                                    yield StreamEvent(type="answer", content=text)
+                    elif isinstance(content, str) and content:
+                        accumulated_answer += content
+                        yield StreamEvent(type="answer", content=content)
+
+                elif etype == "on_tool_start":
+                    tool_name = event.get("name", "")
+                    if tool_name:
+                        yield StreamEvent(type="tool_start", tool=tool_name)
+
+                elif etype == "on_tool_end":
+                    tool_name = event.get("name", "")
+                    if tool_name:
+                        tools_called.append(tool_name)
+                        raw_output = event.get("data", {}).get("output")
+                        if hasattr(raw_output, "content"):
+                            tool_output = raw_output.content
+                        elif raw_output is not None:
+                            tool_output = str(raw_output)
+                        else:
+                            tool_output = ""
+                        yield StreamEvent(type="tool_end", tool=tool_name, output=tool_output)
+                        if isinstance(tool_output, str) and tool_output.startswith("[ERROR]"):
+                            yield StreamEvent(type="tool_error", tool=tool_name, message=tool_output)
+
+        except Exception as e:
+            yield StreamEvent(type="__error__", message=f"Agent 执行出错：{e}")
+            return
+
+        yield StreamEvent(
+            type="__done__",
+            answer=accumulated_answer or "（无回复）",
+            tools_called=list(dict.fromkeys(tools_called)),
+            session_id=context.session_id,
+            latency_ms=int((time.monotonic() - start) * 1000),
+        )
+
+
+# 延迟类型注解（避免循环导入）
+from typing import TYPE_CHECKING  # noqa: E402
+
+if TYPE_CHECKING:
+    from src.agents.base import AgentContext, AgentResult, StreamEvent  # noqa: F401

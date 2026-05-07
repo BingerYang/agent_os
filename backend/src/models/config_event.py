@@ -1,11 +1,13 @@
-from datetime import datetime, timezone
 import enum
-from sqlalchemy import BigInteger, DateTime, Enum, JSON, String
+from datetime import UTC, datetime
+
+from sqlalchemy import JSON, BigInteger, DateTime, Enum, String
 from sqlalchemy.orm import Mapped, mapped_column
+
 from src.core.database import Base
 
 
-class ObjectType(str, enum.Enum):
+class ObjectType(enum.StrEnum):
     AGENT = "agent"
     TOOL = "tool"
     SKILL = "skill"
@@ -22,4 +24,4 @@ class ConfigChangeEvent(Base):
     object_type: Mapped[ObjectType] = mapped_column(Enum(ObjectType), nullable=False)
     object_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     change_summary: Mapped[dict] = mapped_column(JSON, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))

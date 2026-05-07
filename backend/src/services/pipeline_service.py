@@ -1,7 +1,7 @@
 from __future__ import annotations
-from collections.abc import Sequence
 
-from datetime import datetime, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -9,9 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.core.exceptions import ResourceNotFound
-from src.models.pipeline import Pipeline
-from src.models.detection_rule import DetectionRule
 from src.models.agent import Agent
+from src.models.detection_rule import DetectionRule
+from src.models.pipeline import Pipeline
 
 
 class PipelineService:
@@ -80,7 +80,7 @@ class PipelineService:
         if detection_rule_ids is not None:
             rules = (await db.execute(select(DetectionRule).where(DetectionRule.id.in_(detection_rule_ids)))).scalars().all()
             obj.detection_rules = list(rules)
-        obj.updated_at = datetime.now(timezone.utc)
+        obj.updated_at = datetime.now(UTC)
         if sub_agent_ids is not None:
             primary_agent_id = obj.primary_agent_id
             if primary_agent_id is not None:
@@ -96,5 +96,5 @@ class PipelineService:
     async def toggle(self, db: AsyncSession, pipeline_id: int, enabled: bool) -> Pipeline:
         obj = await self.get(db, pipeline_id)
         obj.enabled = enabled
-        obj.updated_at = datetime.now(timezone.utc)
+        obj.updated_at = datetime.now(UTC)
         return obj

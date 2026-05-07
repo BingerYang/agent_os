@@ -1,109 +1,100 @@
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+"""单元测试 - query_service（RuntimeContext 版本）。"""
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.agents.intent_router import IntentResult
+from src.agents.base import AgentResult
 from src.core.exceptions import PreCheckRejected
-from src.models.pipeline import PipelineType
+from src.runtime.context import PipelineCacheEntry, RuntimeContext
 from src.services.query_service import execute_query
 
 
-def _build_single_agent_pipeline():
-    tool = SimpleNamespace(id=11, name="weather")
-    agent = SimpleNamespace(id=1, tools=[tool], llm_model=object())
-    pipeline = SimpleNamespace(
-        pipeline_type=PipelineType.SINGLE_AGENT,
-        primary_agent=agent,
-        sub_agents=[],
-        detection_rules=[],
+def _make_context(pipeline_type: str = "SINGLE_AGENT") -> RuntimeContext:
+    """构建最小化 RuntimeContext mock。"""
+    pipeline_cfg = PipelineCacheEntry(
+        pipeline_uid="pl-001",
+        pipeline_id=1,
+        pipeline_type=pipeline_type,
+        primary_agent_id=10,
+        detection_rule_ids=[],
+        enabled=True,
     )
-    return pipeline, agent, tool
-
-
-def _build_multi_agent_pipeline():
-    orchestrator = SimpleNamespace(id=1)
-    sub_agent = SimpleNamespace(id=2)
-    pipeline = SimpleNamespace(
-        pipeline_type=PipelineType.MULTI_AGENT,
-        primary_agent=orchestrator,
-        sub_agents=[sub_agent],
-        detection_rules=[],
-    )
-    return pipeline, orchestrator, sub_agent
+    ctx = MagicMock(spec=RuntimeContext)
+    ctx.get_pipeline.return_value = pipeline_cfg
+    ctx.get_detection_rules.return_value = []
+    ctx.agent_pool = MagicMock()
+    ctx.tool_pool = MagicMock()
+    ctx.mcp_pool = MagicMock()
+    return ctx
 
 
 @pytest.mark.asyncio
-async def test_single_agent_pipeline_routing():
-    pipeline, agent, tool = _build_single_agent_pipeline()
-    run_single_agent_mock = AsyncMock(
-        return_value={
-            "answer": "ok",
-            "tools_called": ["weather"],
-            "session_id": "sess-1",
-            "latency_ms": 12,
-        }
+async def test_single_agent_execute_called():
+    """SINGLE_AGENT 流水线调用 SingleAgentNode.execute()。"""
+    ctx = _make_context("SINGLE_AGENT")
+    expected = AgentResult(
+        answer="ok",
+        tools_called=["weather"],
+        session_id="sess-1",
+        latency_ms=12,
+        pipeline_type="SINGLE_AGENT",
     )
 
-    with patch("src.services.query_service._load_pipeline", new=AsyncMock(return_value=pipeline)), \
-         patch("src.services.query_service._get_enabled_config", new=AsyncMock(return_value=({11}, {1}, set()))), \
+    with patch("src.agents.single_agent.SingleAgentNode.execute", new=AsyncMock(return_value=expected)), \
          patch("src.services.query_service.run_pre_detection", new=AsyncMock()), \
-         patch("src.services.query_service.route_intent", new=AsyncMock(return_value=IntentResult(selected_tools=["weather"]))), \
-         patch("src.services.query_service.run_single_agent", new=run_single_agent_mock), \
          patch("src.services.query_service.run_post_detection", new=AsyncMock()):
-        result = await execute_query(object(), 100, "查天气", session_id="sess-1")
+        result = await execute_query(ctx, "pl-001", "查天气", session_id="sess-1")
 
-    run_single_agent_mock.assert_awaited_once_with(agent, "查天气", [tool], "sess-1")
     assert result["answer"] == "ok"
     assert result["pipeline_type"] == "SINGLE_AGENT"
 
 
 @pytest.mark.asyncio
-async def test_multi_agent_pipeline_routing():
-    pipeline, orchestrator, sub_agent = _build_multi_agent_pipeline()
-    run_multi_agent_mock = AsyncMock(
-        return_value={
-            "answer": "ok",
-            "tools_called": [],
-            "session_id": "sess-2",
-            "latency_ms": 23,
-        }
+async def test_multi_agent_execute_called():
+    """MULTI_AGENT 流水线调用 MultiAgentNode.execute()。"""
+    ctx = _make_context("MULTI_AGENT")
+    expected = AgentResult(
+        answer="多 Agent 回答",
+        tools_called=[],
+        session_id="sess-2",
+        latency_ms=23,
+        pipeline_type="MULTI_AGENT",
     )
-    run_single_agent_mock = AsyncMock()
 
-    with patch("src.services.query_service._load_pipeline", new=AsyncMock(return_value=pipeline)), \
-         patch("src.services.query_service._get_enabled_config", new=AsyncMock(return_value=(set(), {1, 2}, set()))), \
+    with patch("src.agents.multi_agent.MultiAgentNode.execute", new=AsyncMock(return_value=expected)), \
          patch("src.services.query_service.run_pre_detection", new=AsyncMock()), \
-         patch("src.services.query_service.run_single_agent", new=run_single_agent_mock), \
-         patch("src.agents.multi_agent.run_multi_agent", new=run_multi_agent_mock), \
          patch("src.services.query_service.run_post_detection", new=AsyncMock()):
-        result = await execute_query(object(), 200, "多 Agent 查询", session_id="sess-2")
+        result = await execute_query(ctx, "pl-001", "多 Agent 查询", session_id="sess-2")
 
-    run_multi_agent_mock.assert_awaited_once_with(
-        pipeline,
-        "多 Agent 查询",
-        "sess-2",
-        sub_agents=[sub_agent],
-        orchestrator=orchestrator,
-    )
-    run_single_agent_mock.assert_not_awaited()
-    assert result["answer"] == "ok"
+    assert result["answer"] == "多 Agent 回答"
     assert result["pipeline_type"] == "MULTI_AGENT"
 
 
 @pytest.mark.asyncio
 async def test_pre_detection_blocks_query():
-    pipeline, _, _ = _build_single_agent_pipeline()
-    run_single_agent_mock = AsyncMock()
-    run_post_detection_mock = AsyncMock()
+    """前置检测命中时抛出 PreCheckRejected，不执行 Agent。"""
+    ctx = _make_context("SINGLE_AGENT")
+    execute_mock = AsyncMock()
 
-    with patch("src.services.query_service._load_pipeline", new=AsyncMock(return_value=pipeline)), \
-         patch("src.services.query_service._get_enabled_config", new=AsyncMock(return_value=({11}, {1}, set()))), \
-         patch("src.services.query_service.run_pre_detection", new=AsyncMock(side_effect=PreCheckRejected("blocked"))), \
-         patch("src.services.query_service.run_single_agent", new=run_single_agent_mock), \
-         patch("src.services.query_service.run_post_detection", new=run_post_detection_mock):
+    with patch("src.agents.single_agent.SingleAgentNode.execute", new=execute_mock), \
+         patch("src.services.query_service.run_pre_detection",
+               new=AsyncMock(side_effect=PreCheckRejected("blocked"))), \
+         patch("src.services.query_service.run_post_detection", new=AsyncMock()):
         with pytest.raises(PreCheckRejected, match="blocked"):
-            await execute_query(object(), 300, "敏感查询")
+            await execute_query(ctx, "pl-001", "敏感查询")
 
-    run_single_agent_mock.assert_not_awaited()
-    run_post_detection_mock.assert_not_awaited()
+    execute_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_pipeline_not_found_raises():
+    """流水线不存在时抛出 ResourceNotFound。"""
+    from src.core.exceptions import ResourceNotFound
+
+    ctx = _make_context()
+    ctx.get_pipeline.return_value = None
+
+    with pytest.raises(ResourceNotFound):
+        await execute_query(ctx, "nonexistent", "查询")

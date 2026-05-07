@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -14,7 +14,6 @@ from src.models.tool import Tool
 from src.services.config_cache import _serialize_agent, _serialize_model, _serialize_skill
 from src.services.event_bus import event_bus
 
-
 SUPPORTED_ITEM_TYPES = {"tool", "skill", "agent"}
 MarketplaceItem = Tool | Skill | Agent
 
@@ -24,7 +23,7 @@ def _build_event(entity_type: str, entity_id: int, action: str, entity: dict | N
         "entity_type": entity_type,
         "entity_id": entity_id,
         "action": action,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     if entity is not None:
         event["entity"] = entity
@@ -125,7 +124,7 @@ class MarketplaceService:
         normalized_item_type = self._normalize_item_type(item_type)
         obj = await self._get_item(db, item_type, item_id)
         obj.enabled = True
-        obj.updated_at = datetime.now(timezone.utc)
+        obj.updated_at = datetime.now(UTC)
         await db.flush()
         await event_bus.publish(
             _build_event(
@@ -141,7 +140,7 @@ class MarketplaceService:
         normalized_item_type = self._normalize_item_type(item_type)
         obj = await self._get_item(db, item_type, item_id)
         obj.enabled = False
-        obj.updated_at = datetime.now(timezone.utc)
+        obj.updated_at = datetime.now(UTC)
         await db.flush()
         await event_bus.publish(_build_event(normalized_item_type, obj.id, "disable"))
         return self._to_item_dict(obj, normalized_item_type)

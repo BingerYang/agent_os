@@ -1,7 +1,7 @@
-from collections.abc import Sequence
 import base64
 import os
-from datetime import datetime, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -88,7 +88,7 @@ class LLMModelService:
             data["api_key"] = encrypt_api_key(data["api_key"])
         for k, v in data.items():
             setattr(obj, k, v)
-        obj.updated_at = datetime.now(timezone.utc)
+        obj.updated_at = datetime.now(UTC)
         return obj
 
     async def delete(self, db: AsyncSession, model_id: int) -> None:

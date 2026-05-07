@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -55,7 +55,7 @@ async def event_stream(request: Request) -> EventSourceResponse:
                 "data": json.dumps(
                     {
                         "event_type": "ping",
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                     },
                     ensure_ascii=False,
                 )

@@ -1,18 +1,20 @@
-from datetime import datetime, timezone
 import enum
-from sqlalchemy import BigInteger, Boolean, DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Text
+from datetime import UTC, datetime
+
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from src.core.database import Base
 
 
-class AgentType(str, enum.Enum):
+class AgentType(enum.StrEnum):
     SINGLE = "SINGLE"
     SUB = "SUB"
     ORCHESTRATOR = "ORCHESTRATOR"
     THIRD_PARTY = "THIRD_PARTY"
 
 
-class AgentStatus(str, enum.Enum):
+class AgentStatus(enum.StrEnum):
     DRAFT = "draft"
     PUBLISHED = "published"
 
@@ -46,8 +48,11 @@ class Agent(Base):
     routing_intent_rules: Mapped[list | None] = mapped_column(JSON)
     sub_agent_ids: Mapped[list] = mapped_column(JSON, default=list)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    # 发布状态（由发布服务维护）
+    published_version: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    last_published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
     llm_model: Mapped["LLMModel | None"] = relationship("LLMModel", foreign_keys=[llm_model_id])  # type: ignore[name-defined]
     tools: Mapped[list["Tool"]] = relationship("Tool", secondary="agent_tools", back_populates="agents")  # type: ignore[name-defined]

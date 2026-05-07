@@ -1,16 +1,18 @@
-from datetime import datetime, timezone
 import enum
-from sqlalchemy import Boolean, DateTime, Enum, Integer, JSON, String, Text
+from datetime import UTC, datetime
+
+from sqlalchemy import JSON, Boolean, DateTime, Enum, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
+
 from src.core.database import Base
 
 
-class DetectionStage(str, enum.Enum):
+class DetectionStage(enum.StrEnum):
     PRE = "PRE"
     POST = "POST"
 
 
-class RuleType(str, enum.Enum):
+class RuleType(enum.StrEnum):
     KEYWORD = "keyword"
     LLM_JUDGE = "llm_judge"
 
@@ -26,5 +28,5 @@ class DetectionRule(Base):
     reject_message: Mapped[str | None] = mapped_column(String(512))
     priority: Mapped[int] = mapped_column(Integer, default=100)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))

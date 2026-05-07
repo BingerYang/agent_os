@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -8,8 +8,8 @@ from sqlalchemy.orm import selectinload
 
 from src.core.exceptions import ResourceConflict, ResourceNotFound
 from src.models.agent import Agent
-from src.models.tool import Tool
 from src.models.skill import Skill
+from src.models.tool import Tool
 from src.services.config_cache import _serialize_agent
 from src.services.event_bus import event_bus
 
@@ -19,7 +19,7 @@ def _build_event(entity_type: str, entity_id: int, action: str, entity: dict | N
         "entity_type": entity_type,
         "entity_id": entity_id,
         "action": action,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     if entity is not None:
         event["entity"] = entity
@@ -92,13 +92,13 @@ class AgentService:
         if skill_ids is not None:
             skills = (await db.execute(select(Skill).where(Skill.id.in_(skill_ids)))).scalars().all()
             obj.skills = list(skills)
-        obj.updated_at = datetime.now(timezone.utc)
+        obj.updated_at = datetime.now(UTC)
         return obj
 
     async def publish(self, db: AsyncSession, agent_id: int, status: str) -> Agent:
         obj = await self.get(db, agent_id)
         obj.status = status
-        obj.updated_at = datetime.now(timezone.utc)
+        obj.updated_at = datetime.now(UTC)
         return obj
 
     async def delete(self, db: AsyncSession, agent_id: int) -> None:
@@ -109,7 +109,7 @@ class AgentService:
     async def toggle(self, db: AsyncSession, agent_id: int, enabled: bool) -> Agent:
         obj = await self.get(db, agent_id)
         obj.enabled = enabled
-        obj.updated_at = datetime.now(timezone.utc)
+        obj.updated_at = datetime.now(UTC)
         await event_bus.publish(
             _build_event(
                 "agent",

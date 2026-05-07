@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -18,7 +18,7 @@ def _build_event(entity_type: str, entity_id: int, action: str, entity: dict | N
         "entity_type": entity_type,
         "entity_id": entity_id,
         "action": action,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     if entity is not None:
         event["entity"] = entity
@@ -77,7 +77,7 @@ class SkillService:
         if tool_ids is not None:
             tools = (await db.execute(select(Tool).where(Tool.id.in_(tool_ids)))).scalars().all()
             obj.tools = list(tools)
-        obj.updated_at = datetime.now(timezone.utc)
+        obj.updated_at = datetime.now(UTC)
         return obj
 
     async def delete(self, db: AsyncSession, skill_id: int) -> None:
@@ -88,7 +88,7 @@ class SkillService:
     async def toggle(self, db: AsyncSession, skill_id: int, enabled: bool) -> Skill:
         obj = await self.get(db, skill_id)
         obj.enabled = enabled
-        obj.updated_at = datetime.now(timezone.utc)
+        obj.updated_at = datetime.now(UTC)
         await event_bus.publish(
             _build_event(
                 "skill",

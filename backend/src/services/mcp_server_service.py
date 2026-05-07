@@ -1,12 +1,12 @@
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import ResourceConflict, ResourceNotFound
 from src.models.mcp_server import MCPServer, MCPServerStatus
@@ -51,7 +51,7 @@ class MCPServerService:
         obj = await self.get(db, server_id)
         for k, v in data.items():
             setattr(obj, k, v)
-        obj.updated_at = datetime.now(timezone.utc)
+        obj.updated_at = datetime.now(UTC)
         return obj
 
     async def delete(self, db: AsyncSession, server_id: int) -> None:
@@ -61,7 +61,7 @@ class MCPServerService:
     async def toggle(self, db: AsyncSession, server_id: int, enabled: bool) -> MCPServer:
         obj = await self.get(db, server_id)
         obj.enabled = enabled
-        obj.updated_at = datetime.now(timezone.utc)
+        obj.updated_at = datetime.now(UTC)
         return obj
 
     @classmethod
@@ -96,12 +96,12 @@ class MCPServerService:
                         await mcp_session.initialize()
             latency_ms = int((time.monotonic() - start) * 1000)
             obj.status = MCPServerStatus.CONNECTED
-            obj.last_connected_at = datetime.now(timezone.utc)
-            obj.updated_at = datetime.now(timezone.utc)
+            obj.last_connected_at = datetime.now(UTC)
+            obj.updated_at = datetime.now(UTC)
             return {"status": "CONNECTED", "latency_ms": latency_ms}
         except Exception as e:
             obj.status = MCPServerStatus.ERROR
-            obj.updated_at = datetime.now(timezone.utc)
+            obj.updated_at = datetime.now(UTC)
             return {"status": "ERROR", "error": str(e)}
 
     async def discover_tools(self, db: AsyncSession, server_id: int) -> dict:
@@ -122,7 +122,7 @@ class MCPServerService:
 
         new_count = 0
         updated_count = 0
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         for mcp_tool in tools_result.tools:
             # 用 server_id + mcp_tool_name 定位已有记录（幂等）

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 
 from src.services.config_cache import config_cache
 
@@ -29,10 +29,10 @@ class EventBus:
                     try:
                         event = await asyncio.wait_for(queue.get(), timeout=self._ping_interval)
                         yield event
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         yield {
                             "event_type": "ping",
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "timestamp": datetime.now(UTC).isoformat(),
                         }
             except (asyncio.CancelledError, GeneratorExit):
                 raise

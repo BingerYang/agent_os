@@ -1,11 +1,12 @@
 from typing import Any
+
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
 from src.core.schemas import ApiResponse, PageResult
 from src.services.llm_model_service import LLMModelService, mask_api_key
-from pydantic import BaseModel
 
 router = APIRouter()
 _svc = LLMModelService()

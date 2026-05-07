@@ -1,8 +1,7 @@
 from __future__ import annotations
-from collections.abc import Sequence
 
-import builtins
-from datetime import datetime, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -19,7 +18,7 @@ def _build_event(entity_type: str, entity_id: int, action: str, entity: dict | N
         "entity_type": entity_type,
         "entity_id": entity_id,
         "action": action,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     if entity is not None:
         event["entity"] = entity
@@ -70,7 +69,7 @@ class DetectionService:
         obj = await self.get(db, rule_id)
         for k, v in data.items():
             setattr(obj, k, v)
-        obj.updated_at = datetime.now(timezone.utc)
+        obj.updated_at = datetime.now(UTC)
         return obj
 
     async def delete(self, db: AsyncSession, rule_id: int) -> None:
@@ -81,7 +80,7 @@ class DetectionService:
     async def toggle(self, db: AsyncSession, rule_id: int, enabled: bool) -> DetectionRule:
         obj = await self.get(db, rule_id)
         obj.enabled = enabled
-        obj.updated_at = datetime.now(timezone.utc)
+        obj.updated_at = datetime.now(UTC)
         await event_bus.publish(
             _build_event(
                 "detection_rule",
@@ -106,7 +105,7 @@ class DetectionService:
             .where(
                 pipeline_detection_rules.c.pipeline_id == pipeline_id,
                 DetectionRule.stage == stage,
-                DetectionRule.enabled == True,
+                DetectionRule.enabled,
             )
             .order_by(DetectionRule.priority.asc())
         )

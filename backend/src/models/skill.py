@@ -1,6 +1,8 @@
-from datetime import datetime, timezone
-from sqlalchemy import Boolean, DateTime, JSON, String, Text
+from datetime import UTC, datetime
+
+from sqlalchemy import JSON, Boolean, DateTime, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from src.core.database import Base
 
 
@@ -16,8 +18,8 @@ class Skill(Base):
     category: Mapped[str] = mapped_column(String(64), nullable=False, default="general")
     author: Mapped[str] = mapped_column(String(128), nullable=False, default="系统官方")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
     tools: Mapped[list["Tool"]] = relationship("Tool", secondary="skill_tools", back_populates="skills")  # type: ignore[name-defined]
     agents: Mapped[list["Agent"]] = relationship("Agent", secondary="agent_skills", back_populates="skills")  # type: ignore[name-defined]

@@ -1,4 +1,5 @@
 from typing import Any
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel

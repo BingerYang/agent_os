@@ -3,11 +3,11 @@
 基于 LangChain 1.0 Middleware 概念实现前/后置检测。
 检测失败时抛出 PreCheckRejected / PostCheckRejected。
 """
-import re
 import logging
+import re
 from typing import Any
 
-from src.core.exceptions import PreCheckRejected, PostCheckRejected
+from src.core.exceptions import PostCheckRejected, PreCheckRejected
 from src.models.detection_rule import DetectionRule, RuleType
 
 logger = logging.getLogger()

@@ -1,6 +1,17 @@
 from fastapi import APIRouter
 
-from src.api.v1 import models_config, tools, skills, agents, pipelines, detection_rules, marketplace, query, events, mcp_servers
+from src.api.v1 import (
+    agents,
+    detection_rules,
+    events,
+    marketplace,
+    mcp_servers,
+    models_config,
+    pipelines,
+    query,
+    skills,
+    tools,
+)
 
 api_router = APIRouter()
 

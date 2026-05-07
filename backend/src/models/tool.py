@@ -1,17 +1,19 @@
-from datetime import datetime, timezone
-from sqlalchemy import BigInteger, Boolean, DateTime, Enum, ForeignKey, JSON, String, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
 import enum
+from datetime import UTC, datetime
+
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from src.core.database import Base
 
 
-class ToolProtocol(str, enum.Enum):
+class ToolProtocol(enum.StrEnum):
     MCP = "MCP"
     HTTP = "HTTP"
     BUILTIN = "BUILTIN"
 
 
-class ToolAuthType(str, enum.Enum):
+class ToolAuthType(enum.StrEnum):
     NONE = "NONE"
     API_KEY = "API_KEY"
     BEARER_TOKEN = "BEARER_TOKEN"
@@ -40,8 +42,8 @@ class Tool(Base):
     tags: Mapped[list | None] = mapped_column(JSON)
     version: Mapped[str] = mapped_column(String(32), default="v1.0.0")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
     agents: Mapped[list["Agent"]] = relationship("Agent", secondary="agent_tools", back_populates="tools")  # type: ignore[name-defined]
     skills: Mapped[list["Skill"]] = relationship("Skill", secondary="skill_tools", back_populates="tools")  # type: ignore[name-defined]

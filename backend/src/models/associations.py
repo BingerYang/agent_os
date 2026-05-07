@@ -1,4 +1,5 @@
 from sqlalchemy import BigInteger, Column, ForeignKey, Table
+
 from src.core.database import Base
 
 agent_tools = Table(

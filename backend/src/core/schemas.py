@@ -1,16 +1,17 @@
-from datetime import datetime, timezone
-from typing import Generic, TypeVar
+from datetime import UTC, datetime
+from typing import TypeVar
+
 from pydantic import BaseModel, Field
 
 T = TypeVar("T")
 
 
-class ApiResponse(BaseModel, Generic[T]):
+class ApiResponse[T](BaseModel):
     """统一响应格式（Constitution I）"""
     code: int = 0
     message: str = "success"
     data: T | None = None
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @classmethod
     def ok(cls, data: T, message: str = "success") -> "ApiResponse[T]":
@@ -21,7 +22,7 @@ class ApiResponse(BaseModel, Generic[T]):
         return cls(code=code, message=message, data=data)
 
 
-class PageResult(BaseModel, Generic[T]):
+class PageResult[T](BaseModel):
     """分页结果"""
     items: list[T]
     total: int

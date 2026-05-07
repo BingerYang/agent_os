@@ -1,10 +1,11 @@
-from typing import Any
 import time
 import uuid as _uuid
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
@@ -165,9 +166,11 @@ async def toggle_agent(agent_id: int, body: ToggleBody, db: AsyncSession = Depen
     return ApiResponse.ok(_to_dict(obj))
 
 
-@router.patch("/{agent_id}/publish")
-async def publish_agent(agent_id: int, body: PublishBody, db: AsyncSession = Depends(get_db)) -> Any:
+@router.patch("/{agent_id}/publish-status")
+async def publish_agent_status(agent_id: int, body: PublishBody, db: AsyncSession = Depends(get_db)) -> Any:
+    """变更 Agent 状态（published/draft）并维护对应流水线的启用状态。"""
     from sqlalchemy import select as _select
+
     from src.models.pipeline import Pipeline, PipelineType
 
     obj = await _svc.publish(db, agent_id, body.status)
@@ -209,6 +212,74 @@ async def publish_agent(agent_id: int, body: PublishBody, db: AsyncSession = Dep
     result = _to_dict(obj)
     result["pipeline_uid"] = pipeline_uid
     return ApiResponse.ok(result)
+
+
+@router.patch("/{agent_id}/publish")
+async def publish_agent_snapshot(
+    agent_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """发布 Agent：生成配置快照写入数据库，并通过 Redis Stream 通知运行时热加载。
+
+    Args:
+        agent_id: 要发布的 Agent ID。
+        db: 数据库会话。
+
+    Returns:
+        ApiResponse[PublishResult]，包含 publish_id、version、redis_notified。
+    """
+    from src.services.publish_service import publish_agent as _publish
+
+    result = await _publish(db, agent_id)
+    return ApiResponse.ok(result.to_dict())
+
+
+@router.get("/{agent_id}/publishes")
+async def list_agent_publishes(
+    agent_id: int,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """查询 Agent 发布历史记录，按版本号降序分页返回。
+
+    Args:
+        agent_id: Agent ID。
+        page: 页码（从 1 开始）。
+        page_size: 每页条数（最大 100）。
+        db: 数据库会话。
+
+    Returns:
+        ApiResponse[PageResult[AgentPublish]]。
+    """
+    from sqlalchemy import func
+    from sqlalchemy import select as _select
+
+    from src.models.agent_publish import AgentPublish
+
+    base_q = _select(AgentPublish).where(AgentPublish.agent_id == agent_id)
+    total: int = (
+        await db.execute(select(func.count()).select_from(base_q.subquery()))
+    ).scalar_one()
+
+    result = await db.execute(
+        base_q.order_by(AgentPublish.version.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    items = result.scalars().all()
+    items_data = [
+        {
+            "id": p.id,
+            "agent_id": p.agent_id,
+            "version": p.version,
+            "is_active": p.is_active,
+            "published_at": p.published_at.isoformat() if p.published_at else None,
+            "published_by": p.published_by,
+        }
+        for p in items
+    ]
+    return ApiResponse.ok(PageResult(items=items_data, total=total, page=page, page_size=page_size))
 
 
 @router.post("/{agent_id}/ping")

@@ -1,23 +1,25 @@
-from datetime import datetime, timezone
 import enum
-from sqlalchemy import Boolean, DateTime, Enum, JSON, String, Text
+from datetime import UTC, datetime
+
+from sqlalchemy import JSON, Boolean, DateTime, Enum, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from src.core.database import Base
 
 
-class MCPTransportType(str, enum.Enum):
+class MCPTransportType(enum.StrEnum):
     STDIO = "STDIO"
     HTTP_SSE = "HTTP_SSE"
 
 
-class MCPAuthType(str, enum.Enum):
+class MCPAuthType(enum.StrEnum):
     NONE = "NONE"
     API_KEY = "API_KEY"
     BEARER_TOKEN = "BEARER_TOKEN"
     BASIC_AUTH = "BASIC_AUTH"
 
 
-class MCPServerStatus(str, enum.Enum):
+class MCPServerStatus(enum.StrEnum):
     UNKNOWN = "UNKNOWN"
     CONNECTED = "CONNECTED"
     DISCONNECTED = "DISCONNECTED"
@@ -43,7 +45,7 @@ class MCPServer(Base):
     status: Mapped[MCPServerStatus] = mapped_column(Enum(MCPServerStatus), nullable=False, default=MCPServerStatus.UNKNOWN)
     last_connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
     tools: Mapped[list["Tool"]] = relationship("Tool", back_populates="mcp_server", cascade="all, delete-orphan")  # type: ignore[name-defined]
