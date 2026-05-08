@@ -131,7 +131,7 @@ export const agentApi = {
   toggle: (id: number, enabled: boolean) => http.patch(`/agents/${id}/toggle`, { enabled }),
   ping: (id: number) => http.post(`/agents/${id}/ping`),
   publish: (id: number, status: string, subAgentIds: number[] = []) =>
-    http.patch(`/agents/${id}/publish`, { status, sub_agent_ids: subAgentIds }),
+    http.patch(`/agents/${id}/publish-status`, { status, sub_agent_ids: subAgentIds }),
 }
 
 export const pipelineApi = {

@@ -293,3 +293,51 @@ async def _push_redis_event(
             exc,
         )
         return False
+
+
+async def push_remove_event(agent_id: int) -> bool:
+    """向 Redis Stream 推送 Agent 移除事件（下架/删除时调用）。"""
+    from src.core.config import get_settings
+    settings = get_settings()
+    try:
+        redis_client = settings.load_redis_client()
+        await redis_client.xadd(
+            settings.redis_stream_key,
+            {
+                'action': 'remove',
+                'agent_id': str(agent_id),
+                'timestamp': datetime.now(UTC).isoformat(),
+            },
+        )
+        await redis_client.aclose()
+        logger.info('publish_service.redis_remove_notified agent_id=%d', agent_id)
+        return True
+    except Exception as exc:
+        logger.warning('publish_service.redis_remove_failed agent_id=%d error=%s (non-fatal)', agent_id, exc)
+        return False
+
+
+async def push_pipeline_event(agent_id: int, enabled: bool) -> bool:
+    """向 Redis Stream 推送 Pipeline 启用/禁用事件。"""
+    from src.core.config import get_settings
+    settings = get_settings()
+    action = 'enable_pipeline' if enabled else 'disable_pipeline'
+    try:
+        redis_client = settings.load_redis_client()
+        await redis_client.xadd(
+            settings.redis_stream_key,
+            {
+                'action': action,
+                'agent_id': str(agent_id),
+                'timestamp': datetime.now(UTC).isoformat(),
+            },
+        )
+        await redis_client.aclose()
+        logger.info('publish_service.redis_pipeline_event agent_id=%d action=%s', agent_id, action)
+        return True
+    except Exception as exc:
+        logger.warning(
+            'publish_service.redis_pipeline_event_failed agent_id=%d action=%s error=%s (non-fatal)',
+            agent_id, action, exc,
+        )
+        return False

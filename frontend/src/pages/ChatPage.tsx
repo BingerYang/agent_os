@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Collapse, Input, message } from 'antd'
 import { agentApi, normalizeListResponse } from '../api'
 import ReactMarkdown from 'react-markdown'
@@ -57,21 +57,40 @@ export default function ChatPage() {
   const selectedAgent = useMemo(() => agents.find(a => a.id === selectedId) ?? null, [agents, selectedId])
 
   // 加载已发布 Agent
+  const loadAgents = useCallback(async () => {
+    setListLoading(true)
+    try {
+      const res = await agentApi.list({ page: 1, page_size: 500, status: 'published', enabled: true })
+      const items = normalizeListResponse<PublishedAgentItem>(res).items
+      const published = items.filter(a => a.status === 'published' && a.enabled && a.pipeline_uid)
+      setAgents(published)
+      setSelectedId(prev => {
+        if (prev !== null && !published.find(a => a.id === prev)) {
+          setMessages([])
+          setSessionId(createSessionId())
+          return published.length > 0 ? published[0].id : null
+        }
+        if (prev === null && published.length > 0) return published[0].id
+        return prev
+      })
+    } finally {
+      setListLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
-    const load = async () => {
-      setListLoading(true)
-      try {
-        const res = await agentApi.list({ page: 1, page_size: 500, status: 'published', enabled: true })
-        const items = normalizeListResponse<PublishedAgentItem>(res).items
-        const published = items.filter(a => a.status === 'published' && a.enabled && a.pipeline_uid)
-        setAgents(published)
-        if (published.length > 0) setSelectedId(published[0].id)
-      } finally {
-        setListLoading(false)
+    void loadAgents()
+  }, [loadAgents])
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void loadAgents()
       }
     }
-    void load()
-  }, [])
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [loadAgents])
 
   // 切换 Agent 重置会话
   useEffect(() => {
@@ -232,7 +251,12 @@ export default function ChatPage() {
         <div className="page-card" style={{ overflow: 'hidden', marginBottom: 0, display: 'flex', flexDirection: 'column' }}>
           <div className="card-header">
             <div className="card-header-title">已发布 Agent</div>
-            {listLoading && <span style={{ fontSize: 12, color: '#9ca3af' }}>加载中…</span>}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {listLoading && <span style={{ fontSize: 12, color: '#9ca3af' }}>加载中…</span>}
+              {!listLoading && (
+                <Button size="small" onClick={() => void loadAgents()}>刷新</Button>
+              )}
+            </div>
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {!listLoading && agents.length === 0 && (

@@ -81,3 +81,16 @@ class RuntimeContext:
             对应的 DetectionRule 列表。
         """
         return [self.detection_cache[rid] for rid in rule_ids if rid in self.detection_cache]
+
+    def update_pipeline_enabled_for_agent(self, agent_id: int, enabled: bool) -> None:
+        """更新指定 Agent 对应流水线的启用状态。"""
+        for entry in self.pipeline_cache.values():
+            if entry.primary_agent_id == agent_id:
+                entry.enabled = enabled
+                return
+
+    def remove_pipeline_for_agent(self, agent_id: int) -> None:
+        """从缓存中移除指定 Agent 对应的流水线。"""
+        keys = [uid for uid, e in self.pipeline_cache.items() if e.primary_agent_id == agent_id]
+        for key in keys:
+            del self.pipeline_cache[key]

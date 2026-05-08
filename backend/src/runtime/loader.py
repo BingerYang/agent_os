@@ -175,13 +175,30 @@ async def _redis_subscriber_loop(
                 events: list[tuple[str, dict]] = results[0][1]
                 last_id = events[-1][0]
 
-                # 按 agent_id 分组，只保留 max publish_id
+                # 分离 publish 事件（按 agent_id 取 max publish_id）和立即处理事件
                 latest: dict[str, str] = {}
                 for _eid, fields in events:
+                    action = fields.get("action", "publish")
                     aid = fields.get("agent_id", "")
-                    pid = fields.get("publish_id", "0")
-                    if aid and (aid not in latest or int(pid) > int(latest[aid])):
-                        latest[aid] = pid
+                    if not aid:
+                        continue
+
+                    if action == "remove":
+                        # 立即从池中移除
+                        context.agent_pool.remove(int(aid))
+                        context.remove_pipeline_for_agent(int(aid))
+                        logger.info("loader.agent_removed agent_id=%s", aid)
+                    elif action == "disable_pipeline":
+                        context.update_pipeline_enabled_for_agent(int(aid), False)
+                        logger.info("loader.pipeline_disabled agent_id=%s", aid)
+                    elif action == "enable_pipeline":
+                        context.update_pipeline_enabled_for_agent(int(aid), True)
+                        logger.info("loader.pipeline_enabled agent_id=%s", aid)
+                    else:
+                        # action == "publish" 或无 action 字段（向后兼容）
+                        pid = fields.get("publish_id", "0")
+                        if aid not in latest or int(pid) > int(latest[aid]):
+                            latest[aid] = pid
 
                 # 从 DB 获取最新 snapshot 并更新池
                 async with async_session_factory() as db:
@@ -244,6 +261,39 @@ async def _reload_agent(
 
         entry = await AgentPool.build_entry(snapshot, context.tool_pool, context.mcp_pool)
         context.agent_pool.upsert(entry)
+        # 同步更新 pipeline_cache（热发布后新 Pipeline 路由立刻可用）
+        from src.models.pipeline import Pipeline as _Pipeline
+        from src.runtime.context import PipelineCacheEntry
+        pipeline_result = await db.execute(
+            select(_Pipeline).where(
+                _Pipeline.primary_agent_id == agent_id,
+                _Pipeline.enabled == True,  # noqa: E712
+            )
+        )
+        pipeline = pipeline_result.scalar_one_or_none()
+        if pipeline and pipeline.uid:
+            from sqlalchemy.orm import selectinload as _sil
+            det_result = await db.execute(
+                select(_Pipeline)
+                .where(_Pipeline.id == pipeline.id)
+                .options(_sil(_Pipeline.detection_rules))
+            )
+            pl_with_rules = det_result.scalar_one_or_none()
+            detection_rule_ids = (
+                [r.id for r in pl_with_rules.detection_rules]
+                if pl_with_rules
+                else []
+            )
+            context.pipeline_cache[pipeline.uid] = PipelineCacheEntry(
+                pipeline_uid=pipeline.uid,
+                pipeline_id=pipeline.id,
+                pipeline_type=pipeline.pipeline_type.value,
+                primary_agent_id=agent_id,
+                detection_rule_ids=detection_rule_ids,
+                route_confidence_threshold=pipeline.route_confidence_threshold or 0.7,
+                timeout_seconds=pipeline.timeout_seconds or 30,
+                enabled=True,
+            )
         logger.info(
             "loader.agent_reloaded agent_id=%d version=%d",
             agent_id, pub.version,

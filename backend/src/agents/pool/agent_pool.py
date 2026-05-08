@@ -214,6 +214,10 @@ class AgentPool:
             pass  # 无运行中的事件循环（如同步测试环境），跳过异步通知
         return victim_id
 
+    def remove(self, agent_id: int) -> bool:
+        """从池中移除指定 Agent。"""
+        return bool(self._pool.pop(agent_id, None))
+
     async def on_eviction(self, event: AgentEvictionEvent) -> None:
         """淘汰事件 hook，V1 为空实现，V2 可接入告警通知。
 

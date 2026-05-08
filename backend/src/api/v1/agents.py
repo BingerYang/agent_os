@@ -156,30 +156,46 @@ async def update_agent(agent_id: int, body: AgentUpdate, db: AsyncSession = Depe
 
 @router.delete("/{agent_id}")
 async def delete_agent(agent_id: int, db: AsyncSession = Depends(get_db)) -> Any:
+    from src.services.publish_service import push_remove_event as _push_remove
+
     await _svc.delete(db, agent_id)
-    return ApiResponse.ok(None, message="删除成功")
+    await db.commit()
+    await _push_remove(agent_id)
+    return ApiResponse.ok(None, message='删除成功')
 
 
 @router.patch("/{agent_id}/toggle")
 async def toggle_agent(agent_id: int, body: ToggleBody, db: AsyncSession = Depends(get_db)) -> Any:
+    from src.services.publish_service import push_pipeline_event as _push_pipeline
+
     obj = await _svc.toggle(db, agent_id, body.enabled)
+    await db.flush()
+
+    if str(getattr(obj.status, 'value', obj.status)) == 'published':
+        await _push_pipeline(agent_id, body.enabled)
+
     return ApiResponse.ok(_to_dict(obj))
 
 
 @router.patch("/{agent_id}/publish-status")
 async def publish_agent_status(agent_id: int, body: PublishBody, db: AsyncSession = Depends(get_db)) -> Any:
-    """变更 Agent 状态（published/draft）并维护对应流水线的启用状态。"""
+    """变更 Agent 状态并维护流水线、运行时池。"""
     from sqlalchemy import select as _select
+    from sqlalchemy import update as _update
 
+    from src.models.agent_publish import AgentPublish
     from src.models.pipeline import Pipeline, PipelineType
+    from src.services.publish_service import publish_agent as _publish
+    from src.services.publish_service import push_remove_event as _push_remove
 
     obj = await _svc.publish(db, agent_id, body.status)
 
     pipeline_uid = None
-    if body.status == "published":
-        existing = (await db.execute(
-            _select(Pipeline).where(Pipeline.primary_agent_id == agent_id)
-        )).scalar_one_or_none()
+
+    if body.status == 'published':
+        existing = (
+            await db.execute(_select(Pipeline).where(Pipeline.primary_agent_id == agent_id))
+        ).scalar_one_or_none()
 
         if existing:
             if not existing.enabled:
@@ -188,12 +204,12 @@ async def publish_agent_status(agent_id: int, body: PublishBody, db: AsyncSessio
         else:
             pipeline_type = (
                 PipelineType.MULTI_AGENT
-                if obj.agent_type.value == "ORCHESTRATOR"
+                if obj.agent_type.value == 'ORCHESTRATOR'
                 else PipelineType.SINGLE_AGENT
             )
             new_pipeline = Pipeline(
                 uid=str(_uuid.uuid4()),
-                name=f"{obj.name} 流水线",
+                name=f'{obj.name} 流水线',
                 pipeline_type=pipeline_type,
                 primary_agent_id=agent_id,
                 enabled=True,
@@ -201,16 +217,36 @@ async def publish_agent_status(agent_id: int, body: PublishBody, db: AsyncSessio
             db.add(new_pipeline)
             await db.flush()
             pipeline_uid = new_pipeline.uid
+
+        await db.commit()
+        pub_result = await _publish(db, agent_id)
+
+        result = _to_dict(obj)
+        result['pipeline_uid'] = pipeline_uid
+        result['publish_id'] = pub_result.publish_id
+        result['version'] = pub_result.version
+
     else:
-        existing = (await db.execute(
-            _select(Pipeline).where(Pipeline.primary_agent_id == agent_id)
-        )).scalar_one_or_none()
+        existing = (
+            await db.execute(_select(Pipeline).where(Pipeline.primary_agent_id == agent_id))
+        ).scalar_one_or_none()
         if existing:
             existing.enabled = False
             pipeline_uid = existing.uid
 
-    result = _to_dict(obj)
-    result["pipeline_uid"] = pipeline_uid
+        await db.execute(
+            _update(AgentPublish)
+            .where(AgentPublish.agent_id == agent_id, AgentPublish.is_active == True)  # noqa: E712
+            .values(is_active=False)
+        )
+
+        result = _to_dict(obj)
+        result['pipeline_uid'] = pipeline_uid
+
+        await db.flush()
+
+        await _push_remove(agent_id)
+
     return ApiResponse.ok(result)
 
 
