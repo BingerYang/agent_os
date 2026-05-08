@@ -2,6 +2,7 @@
 
 包含所有 CRUD 管理路由，不含对话（query）路由。
 独立启动命令：uvicorn src.main_management:app --reload
+生产分离部署时配合 nginx 使用，对话请求由 nginx 路由到 main_runtime。
 """
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager

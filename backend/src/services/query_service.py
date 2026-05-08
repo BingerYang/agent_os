@@ -23,10 +23,10 @@ logger = logging.getLogger(__name__)
 
 
 def _build_agent_context(
-    context: RuntimeContext,
-    pipeline_uid: str,
-    query: str,
-    session_id: str | None,
+        context: RuntimeContext,
+        pipeline_uid: str,
+        query: str,
+        session_id: str | None,
 ) -> tuple[Any, Any, list[Any], list[Any]]:
     """从 RuntimeContext 中取出流水线配置和前/后置检测规则。
 
@@ -59,10 +59,10 @@ def _build_agent_context(
 
 
 async def execute_query(
-    context: RuntimeContext,
-    pipeline_uid: str,
-    query: str,
-    session_id: str | None = None,
+        context: RuntimeContext,
+        pipeline_uid: str,
+        query: str,
+        session_id: str | None = None,
 ) -> dict[str, Any]:
     """执行查询流水线（非流式），支持 SINGLE_AGENT / MULTI_AGENT。
 
@@ -96,10 +96,10 @@ async def execute_query(
 
 
 async def execute_stream_query(
-    context: RuntimeContext,
-    pipeline_uid: str,
-    query: str,
-    session_id: str | None = None,
+        context: RuntimeContext,
+        pipeline_uid: str,
+        query: str,
+        session_id: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """流式执行查询流水线，逐事件 yield SSE 事件 dict。
 
@@ -137,9 +137,11 @@ async def execute_stream_query(
 
             if etype == "__done__":
                 final_event = event_dict
+                logger.info(f"Stream execution finished: {event_dict}")
                 break
             if etype == "__error__":
                 yield {"type": "error", "code": 50000, "message": event_dict.get("message", "")}
+                logger.info(f"Stream execution error: {event_dict}")
                 return
 
             if etype == "answer":
@@ -147,6 +149,7 @@ async def execute_stream_query(
             yield event_dict
 
     except Exception as e:
+        logger.warning("Stream execution error: %s", e)
         yield {"type": "error", "code": 50000, "message": f"流式执行异常：{e}"}
         return
 
@@ -157,5 +160,6 @@ async def execute_stream_query(
     try:
         await run_post_detection(post_rules, accumulated_answer)
     except PostCheckRejected as e:
+        logger.warning("Post detection rejected: %s", e)
         yield {"type": "error", "code": 40302, "message": str(e)}
         return

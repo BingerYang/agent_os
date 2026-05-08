@@ -10,4 +10,8 @@ if "_patch_asyncio" in getattr(asyncio.run, "__qualname__", ""):
 import uvicorn
 
 if __name__ == "__main__":
+    # 本地开发：单体模式（管理端 + 运行时合一）
+    # 生产分离部署：
+    #   管理端 → uvicorn src.main_management:app --port 8000
+    #   运行时 → uvicorn src.main_runtime:app --port 8001
     uvicorn.run("src.main:app", host="0.0.0.0", port=8000, reload=False)  # type: ignore
