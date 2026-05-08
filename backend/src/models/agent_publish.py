@@ -18,7 +18,7 @@ class AgentPublish(Base):
         Index("ix_agent_publishes_agent_id_is_active", "agent_id", "is_active"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     agent_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("agents.id"), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     config_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)

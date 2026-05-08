@@ -76,6 +76,8 @@ async def publish_agent(
     from src.core.exceptions import ResourceNotFound
     from src.models.agent import Agent
     from src.models.agent_publish import AgentPublish
+    from src.models.skill import Skill
+    from src.models.tool import Tool
 
     settings = get_settings()
 
@@ -85,8 +87,8 @@ async def publish_agent(
         .where(Agent.id == agent_id)
         .options(
             selectinload(Agent.llm_model),
-            selectinload(Agent.tools).selectinload("mcp_server"),
-            selectinload(Agent.skills).selectinload("tools"),
+            selectinload(Agent.tools).selectinload(Tool.mcp_server),
+            selectinload(Agent.skills).selectinload(Skill.tools),
         )
     )
     agent = result.scalar_one_or_none()
