@@ -125,38 +125,56 @@ class MCPConnectionPool:
         tool_name: str,
         args: dict[str, Any],
         headers: dict[str, str] | None = None,
+        *,
+        max_retries: int = 1,
     ) -> str:
-        """通过连接池调用 MCP 工具（串行化）。
+        """通过连接池调用 MCP 工具（串行化，断线自动重连）。
+
+        MCP Server 重启导致调用失败时，自动标记连接不健康、重连后重试一次，
+        对上层调用方透明。max_retries=1 意味着最多重试 1 次（共 2 次尝试）。
 
         Args:
             endpoint_url: MCP Server 端点 URL。
             tool_name: MCP 工具名称。
             args: 工具调用参数。
             headers: 可选的认证请求头（首次创建条目时使用）。
+            max_retries: 最大重试次数，默认 1。
 
         Returns:
             工具返回内容的字符串表示，多段以换行拼接；空结果返回"[工具返回空结果]"。
 
         Raises:
-            Exception: 工具调用失败时向上抛出。
+            Exception: 重试耗尽后仍失败时向上抛出。
         """
         entry = self.get_or_create(endpoint_url, headers)
-        await self.ensure_connected(entry)
+        result = None
 
-        async with entry.lock:
-            entry.last_used_at = datetime.now(UTC)
-            try:
-                result = await entry.session.call_tool(tool_name, arguments=args)  # type: ignore[union-attr]
-            except Exception as exc:
-                entry.is_healthy = False
-                logger.error(
-                    "mcp_pool.call_tool_failed endpoint=%s tool=%s error=%s",
-                    endpoint_url, tool_name, exc,
-                )
-                raise
+        for attempt in range(max_retries + 1):
+            await self.ensure_connected(entry)
+
+            async with entry.lock:
+                entry.last_used_at = datetime.now(UTC)
+                try:
+                    result = await entry.session.call_tool(tool_name, arguments=args)  # type: ignore[union-attr]
+                except Exception as exc:
+                    entry.is_healthy = False
+                    if attempt < max_retries:
+                        # 释放锁后由下一轮 ensure_connected 重连，不死锁
+                        logger.warning(
+                            "mcp_pool.call_tool_retry attempt=%d endpoint=%s tool=%s error=%s",
+                            attempt + 1, endpoint_url, tool_name, exc,
+                        )
+                        continue
+                    logger.error(
+                        "mcp_pool.call_tool_failed endpoint=%s tool=%s error=%s",
+                        endpoint_url, tool_name, exc,
+                    )
+                    raise
+                else:
+                    break  # 成功，退出重试循环
 
         parts: list[str] = []
-        for item in result.content:
+        for item in result.content:  # type: ignore[union-attr]
             if hasattr(item, "text"):
                 parts.append(item.text)
             elif isinstance(item, dict):
