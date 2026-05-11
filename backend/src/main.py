@@ -68,6 +68,8 @@ def create_app() -> FastAPI:
         description="可配置可扩展智能体编排系统 API",
         version="0.1.0",
         lifespan=lifespan,
+        docs_url="/docs",
+        redoc_url="/redoc",
     )
 
     app.add_middleware(

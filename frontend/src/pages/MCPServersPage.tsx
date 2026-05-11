@@ -5,6 +5,7 @@ import StatusTag from '../components/StatusTag'
 import { mcpServerApi, normalizeDetailResponse, normalizeListResponse } from '../api'
 
 type TransportType = 'STDIO' | 'HTTP_SSE' | 'stdio' | 'sse' | 'http'
+type AuthType = 'NONE' | 'API_KEY' | 'BEARER_TOKEN' | 'JWT_BEARER' | 'BASIC_AUTH' | 'OAUTH2'
 type ServerStatus = 'UNKNOWN' | 'CONNECTED' | 'DISCONNECTED' | 'ERROR'
 
 interface MCPServerItem {
@@ -18,6 +19,7 @@ interface MCPServerItem {
   env_vars?: Record<string, string> | string | null
   auth_type?: string
   auth_config?: Record<string, unknown> | null
+  headers?: Record<string, string> | null
   auto_connect?: boolean
   enabled: boolean
   status?: ServerStatus
@@ -33,8 +35,68 @@ interface MCPServerFormValues {
   command?: string
   endpoint_url?: string
   env_vars?: string
+  auth_type: AuthType
+  auth_key_name?: string
+  auth_key_value?: string
+  auth_key_location?: 'header' | 'query'
+  auth_token?: string
+  auth_username?: string
+  auth_password?: string
+  auth_access_token?: string
+  auth_token_type?: string
+  headers?: string
   auto_connect?: boolean
   enabled: boolean
+}
+
+function buildAuthConfig(values: MCPServerFormValues): Record<string, unknown> | null {
+  switch (values.auth_type) {
+    case 'API_KEY':
+      return {
+        key_name: values.auth_key_name || 'X-API-Key',
+        key_value: values.auth_key_value || '',
+        key_location: values.auth_key_location || 'header',
+      }
+    case 'BEARER_TOKEN':
+    case 'JWT_BEARER':
+      return { token: values.auth_token || '' }
+    case 'BASIC_AUTH':
+      return { username: values.auth_username || '', password: values.auth_password || '' }
+    case 'OAUTH2':
+      return {
+        access_token: values.auth_access_token || '',
+        token_type: values.auth_token_type || 'bearer',
+      }
+    default:
+      return null
+  }
+}
+
+function parseAuthConfig(
+  authType: AuthType,
+  cfg: Record<string, unknown> | null,
+): Partial<MCPServerFormValues> {
+  if (!cfg) return {}
+  switch (authType) {
+    case 'API_KEY':
+      return {
+        auth_key_name: cfg.key_name as string,
+        auth_key_value: cfg.key_value as string,
+        auth_key_location: (cfg.key_location as 'header' | 'query') || 'header',
+      }
+    case 'BEARER_TOKEN':
+    case 'JWT_BEARER':
+      return { auth_token: cfg.token as string }
+    case 'BASIC_AUTH':
+      return { auth_username: cfg.username as string, auth_password: cfg.password as string }
+    case 'OAUTH2':
+      return {
+        auth_access_token: cfg.access_token as string,
+        auth_token_type: (cfg.token_type as string) || 'bearer',
+      }
+    default:
+      return {}
+  }
 }
 
 const actionButtonStyle: React.CSSProperties = {
@@ -99,6 +161,7 @@ export default function MCPServersPage() {
   const [editingId, setEditingId] = useState<number | null>(null)
 
   const transportType = Form.useWatch('transport_type', form)
+  const authType = Form.useWatch('auth_type', form)
 
   const loadList = async () => {
     setLoading(true)
@@ -128,6 +191,8 @@ export default function MCPServersPage() {
       auto_connect: false,
       enabled: true,
       env_vars: '{}',
+      auth_type: 'NONE',
+      headers: '{}',
     })
     setDrawerOpen(true)
   }
@@ -137,6 +202,7 @@ export default function MCPServersPage() {
     setDrawerOpen(true)
     form.resetFields()
     const detail = normalizeDetailResponse<MCPServerItem>(await mcpServerApi.get(record.id))
+    const detailAuthType = ((detail.auth_type as AuthType) || 'NONE')
     form.setFieldsValue({
       name: detail.name,
       display_name: detail.display_name,
@@ -145,6 +211,9 @@ export default function MCPServersPage() {
       command: detail.command,
       endpoint_url: detail.endpoint_url,
       env_vars: stringifyEnvVars(detail.env_vars),
+      auth_type: detailAuthType,
+      ...parseAuthConfig(detailAuthType, (detail.auth_config as Record<string, unknown> | null)),
+      headers: detail.headers ? JSON.stringify(detail.headers, null, 2) : '{}',
       auto_connect: detail.auto_connect,
       enabled: detail.enabled,
     })
@@ -152,15 +221,27 @@ export default function MCPServersPage() {
 
   const handleSubmit = async () => {
     const values = await form.validateFields()
+    const {
+      auth_key_name,
+      auth_key_value,
+      auth_key_location,
+      auth_token,
+      auth_username,
+      auth_password,
+      auth_access_token,
+      auth_token_type,
+      ...restValues
+    } = values
     const payload = {
-      ...values,
+      ...restValues,
       transport_type: values.transport_type,
       command: values.transport_type === 'STDIO' ? values.command?.trim() || undefined : undefined,
       endpoint_url:
         values.transport_type === 'HTTP_SSE' ? values.endpoint_url?.trim() || undefined : undefined,
       env_vars: values.env_vars ? JSON.parse(values.env_vars) : {},
-      auth_type: 'NONE',
-      auth_config: null,
+      auth_type: values.auth_type || 'NONE',
+      auth_config: buildAuthConfig(values),
+      headers: values.headers && values.headers.trim() !== '{}' ? JSON.parse(values.headers) : null,
     }
     setSaving(true)
     try {
@@ -411,8 +492,58 @@ export default function MCPServersPage() {
               <Input placeholder="https://example.com/sse" />
             </Form.Item>
           )}
+          <Form.Item label="认证方式" name="auth_type" initialValue="NONE">
+            <Select
+              options={[
+                { label: '无认证', value: 'NONE' },
+                { label: 'API Key', value: 'API_KEY' },
+                { label: 'Bearer Token', value: 'BEARER_TOKEN' },
+                { label: 'JWT Bearer', value: 'JWT_BEARER' },
+                { label: 'Basic Auth', value: 'BASIC_AUTH' },
+                { label: 'OAuth 2.0', value: 'OAUTH2' },
+              ]}
+            />
+          </Form.Item>
+          {(authType === 'BEARER_TOKEN' || authType === 'JWT_BEARER') && (
+            <Form.Item label="Token" name="auth_token" rules={[{ required: true, message: '请输入 Token' }]}>
+              <Input.Password placeholder="请输入 Bearer Token" />
+            </Form.Item>
+          )}
+          {authType === 'API_KEY' && (
+            <>
+              <Form.Item label="Key 名称" name="auth_key_name" initialValue="X-API-Key">
+                <Input placeholder="X-API-Key" />
+              </Form.Item>
+              <Form.Item label="Key 值" name="auth_key_value" rules={[{ required: true, message: '请输入 Key 值' }]}>
+                <Input.Password placeholder="请输入 API Key" />
+              </Form.Item>
+              <Form.Item label="传入位置" name="auth_key_location" initialValue="header">
+                <Select options={[{ label: 'Header', value: 'header' }, { label: 'Query 参数', value: 'query' }]} />
+              </Form.Item>
+            </>
+          )}
+          {authType === 'BASIC_AUTH' && (
+            <>
+              <Form.Item label="用户名" name="auth_username" rules={[{ required: true, message: '请输入用户名' }]}>
+                <Input placeholder="请输入用户名" />
+              </Form.Item>
+              <Form.Item label="密码" name="auth_password" rules={[{ required: true, message: '请输入密码' }]}>
+                <Input.Password placeholder="请输入密码" />
+              </Form.Item>
+            </>
+          )}
+          {authType === 'OAUTH2' && (
+            <>
+              <Form.Item label="Access Token" name="auth_access_token" rules={[{ required: true, message: '请输入 Access Token' }]}>
+                <Input.Password placeholder="请输入 OAuth2 Access Token" />
+              </Form.Item>
+              <Form.Item label="Token 类型" name="auth_token_type" initialValue="bearer">
+                <Input placeholder="bearer" />
+              </Form.Item>
+            </>
+          )}
           <Form.Item
-            label="环境变量(JSON)"
+            label="环境变量 (JSON)"
             name="env_vars"
             rules={[
               {
@@ -428,6 +559,20 @@ export default function MCPServersPage() {
             ]}
           >
             <Input.TextArea className="mono-textarea" rows={6} placeholder='例如 {"API_KEY":"xxx"}' />
+          </Form.Item>
+          <Form.Item
+            label="自定义请求头 (JSON)"
+            name="headers"
+            rules={[
+              {
+                validator: async (_: unknown, value?: string) => {
+                  if (!value || value.trim() === '{}') return
+                  try { JSON.parse(value) } catch { throw new Error('请输入合法的 JSON') }
+                },
+              },
+            ]}
+          >
+            <Input.TextArea className="mono-textarea" rows={3} placeholder='{"X-Custom-Header": "value"}' />
           </Form.Item>
           <Form.Item label="自动连接" name="auto_connect" valuePropName="checked">
             <Switch checkedChildren="开启" unCheckedChildren="关闭" />

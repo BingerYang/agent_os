@@ -4,6 +4,7 @@ from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.core.exceptions import ResourceConflict, ResourceNotFound
 from src.models.tool import Tool
@@ -34,7 +35,7 @@ class ToolService:
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[Sequence[Tool], int]:
-        q = select(Tool)
+        q = select(Tool).options(selectinload(Tool.mcp_server))
         if protocol:
             q = q.where(Tool.protocol == protocol)
         if enabled is not None:

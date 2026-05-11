@@ -17,6 +17,8 @@ class MCPAuthType(enum.StrEnum):
     API_KEY = "API_KEY"
     BEARER_TOKEN = "BEARER_TOKEN"
     BASIC_AUTH = "BASIC_AUTH"
+    JWT_BEARER = "JWT_BEARER"
+    OAUTH2 = "OAUTH2"
 
 
 class MCPServerStatus(enum.StrEnum):
@@ -42,6 +44,8 @@ class MCPServer(Base):
     auth_type: Mapped[MCPAuthType] = mapped_column(Enum(MCPAuthType), nullable=False, default=MCPAuthType.NONE)
     # auth_config 结构：API_KEY: {key_name, key_value, key_location(header/query)}; BEARER_TOKEN: {token}; BASIC_AUTH: {username, password}
     auth_config: Mapped[dict | None] = mapped_column(JSON)
+    # headers：自定义请求头键值对，在认证头之后追加/覆盖
+    headers: Mapped[dict | None] = mapped_column(JSON)
     status: Mapped[MCPServerStatus] = mapped_column(Enum(MCPServerStatus), nullable=False, default=MCPServerStatus.UNKNOWN)
     last_connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

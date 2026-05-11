@@ -23,6 +23,7 @@ class MCPServerCreate(BaseModel):
     endpoint_url: str | None = None
     auth_type: str = "NONE"
     auth_config: dict | None = None
+    headers: dict | None = None
     enabled: bool = True
 
 
@@ -36,6 +37,7 @@ class MCPServerUpdate(BaseModel):
     endpoint_url: str | None = None
     auth_type: str | None = None
     auth_config: dict | None = None
+    headers: dict | None = None
     enabled: bool | None = None
 
 

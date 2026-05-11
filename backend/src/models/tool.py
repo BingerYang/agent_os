@@ -18,6 +18,8 @@ class ToolAuthType(enum.StrEnum):
     API_KEY = "API_KEY"
     BEARER_TOKEN = "BEARER_TOKEN"
     BASIC_AUTH = "BASIC_AUTH"
+    JWT_BEARER = "JWT_BEARER"
+    OAUTH2 = "OAUTH2"
 
 
 class Tool(Base):
@@ -33,7 +35,10 @@ class Tool(Base):
     # API_KEY: {key_name, key_value, key_location(header/query)}
     # BEARER_TOKEN: {token}
     # BASIC_AUTH: {username, password}
+    # JWT_BEARER: {token}
+    # OAUTH2: {access_token, token_type}
     auth_config: Mapped[dict | None] = mapped_column(JSON)
+    headers: Mapped[dict | None] = mapped_column(JSON)
     mcp_server_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("mcp_servers.id", ondelete="SET NULL"))
     mcp_tool_name: Mapped[str | None] = mapped_column(String(128))
     input_schema: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)

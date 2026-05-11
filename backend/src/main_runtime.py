@@ -65,6 +65,8 @@ def create_runtime_app() -> FastAPI:
         description="Agent 对话接口（流式与非流式），对话期间零数据库读取",
         version="0.1.0",
         lifespan=lifespan,
+        docs_url="/docs",
+        redoc_url="/redoc",
     )
 
     app.add_middleware(

@@ -44,28 +44,53 @@
 agent_os/
 ├── backend/
 │   ├── src/
-│   │   ├── api/v1/          # 路由层（tools / skills / agents / pipelines /
-│   │   │                    #         detection_rules / marketplace / query / events）
-│   │   ├── agents/          # detection · intent_router · single_agent · multi_agent
-│   │   ├── models/          # SQLAlchemy ORM
-│   │   ├── services/        # 业务逻辑（含 event_bus · config_cache）
-│   │   └── core/            # config · database · exceptions · schemas · middleware
+│   │   ├── api/v1/              # 路由层
+│   │   │   ├── agents.py        # Agent CRUD + 发布/下架/禁用
+│   │   │   ├── tools.py         # Tool CRUD
+│   │   │   ├── skills.py        # Skill CRUD
+│   │   │   ├── mcp_servers.py   # MCP Server CRUD + 连接/发现工具
+│   │   │   ├── models_config.py # LLM 模型配置
+│   │   │   ├── pipelines.py     # Pipeline CRUD
+│   │   │   ├── detection_rules.py
+│   │   │   ├── marketplace.py   # 商场安装/卸载
+│   │   │   ├── query.py         # 同步/流式查询入口
+│   │   │   └── events.py        # SSE 配置推送
+│   │   ├── agents/
+│   │   │   ├── base.py          # BaseNode 策略模式基类
+│   │   │   ├── detection.py     # 前/后置检测
+│   │   │   ├── intent_router.py
+│   │   │   ├── single_agent.py
+│   │   │   ├── multi_agent.py
+│   │   │   ├── pool/            # AgentPool · ToolPool · SkillPool · MCPConnectionPool
+│   │   │   └── strategies/      # HttpStrategy · MCPStrategy · factory
+│   │   ├── models/              # SQLAlchemy ORM（agent · tool · skill · mcp_server ·
+│   │   │                        #   pipeline · detection_rule · llm_model · agent_publish）
+│   │   ├── services/            # 业务逻辑
+│   │   │   ├── event_bus.py     # Redis Stream 事件总线
+│   │   │   ├── config_cache.py  # 热加载配置缓存
+│   │   │   ├── publish_service.py
+│   │   │   └── ...              # 各资源 CRUD service
+│   │   ├── runtime/             # 运行时上下文（context · loader）
+│   │   ├── core/                # config · database · exceptions · schemas · middleware
+│   │   ├── main_management.py   # 管理端入口（Admin API，端口 8001）
+│   │   ├── main_runtime.py      # 运行时入口（Query/Events，端口 8000）
+│   │   └── main.py              # 合并入口（开发兼容）
 │   ├── tests/
-│   │   ├── unit/            # 纯逻辑单元测试（mock LLM）
-│   │   ├── integration/     # 端到端 API 集成测试
-│   │   └── contract/        # JSON Schema 契约测试
-│   ├── alembic/             # 数据库迁移
+│   │   ├── unit/                # 纯逻辑单元测试（mock LLM）
+│   │   ├── integration/         # 端到端 API 集成测试
+│   │   └── contract/            # JSON Schema 契约测试
+│   ├── alembic/                 # 数据库迁移
 │   └── pyproject.toml
 ├── frontend/
 │   ├── src/
-│   │   ├── views/           # ModelView · AgentView · WorkflowView · MCPView ·
-│   │   │                    #   SkillView · PipelineView
-│   │   ├── stores/          # Pinia（agent · marketplace）
-│   │   ├── components/      # StatusTag · SearchBar · MarketplaceCard
-│   │   ├── api/             # Axios 实例（ApiResponse 拆包）
-│   │   └── router/          # 路由 + 未配置模型导航守卫
+│   │   ├── api/                 # Axios 实例（ApiResponse 拆包）
+│   │   ├── views/               # ModelView · AgentView · WorkflowView · MCPView ·
+│   │   │                        #   SkillView · PipelineView
+│   │   ├── stores/              # Pinia（agent · marketplace）
+│   │   ├── components/          # StatusTag · SearchBar · MarketplaceCard
+│   │   └── router/              # 路由 + 未配置模型导航守卫
 │   └── package.json
-└── specs/001-agent-dispatch-platform/   # 规格 / 设计 / 任务文档
+└── specs/                       # 规格 / 设计 / 任务文档（按 feature 分目录）
 ```
 
 ---

@@ -34,6 +34,8 @@ def create_management_app() -> FastAPI:
         description="Agent / Tool / Skill / Pipeline 等资源的 CRUD 管理接口",
         version="0.1.0",
         lifespan=lifespan,
+        docs_url="/docs",
+        redoc_url="/redoc",
     )
 
     app.add_middleware(

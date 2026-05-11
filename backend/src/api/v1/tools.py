@@ -20,6 +20,7 @@ class ToolCreate(BaseModel):
     endpoint_url: str | None = None
     auth_type: str = "NONE"
     auth_config: dict | None = None
+    headers: dict | None = None
     input_schema: dict = {}
     output_schema: dict | None = None
     source_platform: str = "local"
@@ -34,6 +35,7 @@ class ToolUpdate(BaseModel):
     endpoint_url: str | None = None
     auth_type: str | None = None
     auth_config: dict | None = None
+    headers: dict | None = None
     input_schema: dict | None = None
     output_schema: dict | None = None
     tags: list | None = None
@@ -45,8 +47,15 @@ class ToggleBody(BaseModel):
     enabled: bool
 
 
-def _to_dict(obj: Any) -> dict:
+def _base_to_dict(obj: Any) -> dict:
     return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
+
+
+def _tool_to_dict(obj: Any) -> dict:
+    data = _base_to_dict(obj)
+    if obj.mcp_server:
+        data["mcp_server_name"] = obj.mcp_server.name
+    return data
 
 
 @router.get("")
@@ -68,26 +77,28 @@ async def list_tools(
         page=page,
         page_size=page_size,
     )
-    return ApiResponse.ok(PageResult(items=[_to_dict(i) for i in items], total=total, page=page, page_size=page_size))
+    return ApiResponse.ok(
+        PageResult(items=[_tool_to_dict(i) for i in items], total=total, page=page, page_size=page_size)
+    )
 
 
 @router.post("")
 async def create_tool(body: ToolCreate, db: AsyncSession = Depends(get_db)) -> Any:
     obj = await _svc.create(db, body.model_dump())
-    return ApiResponse.ok(_to_dict(obj))
+    return ApiResponse.ok(_tool_to_dict(obj))
 
 
 @router.get("/{tool_id}")
 async def get_tool(tool_id: int, db: AsyncSession = Depends(get_db)) -> Any:
     obj = await _svc.get(db, tool_id)
-    return ApiResponse.ok(_to_dict(obj))
+    return ApiResponse.ok(_tool_to_dict(obj))
 
 
 @router.put("/{tool_id}")
 async def update_tool(tool_id: int, body: ToolUpdate, db: AsyncSession = Depends(get_db)) -> Any:
     data = {k: v for k, v in body.model_dump().items() if v is not None}
     obj = await _svc.update(db, tool_id, data)
-    return ApiResponse.ok(_to_dict(obj))
+    return ApiResponse.ok(_tool_to_dict(obj))
 
 
 @router.delete("/{tool_id}")
@@ -99,4 +110,4 @@ async def delete_tool(tool_id: int, db: AsyncSession = Depends(get_db)) -> Any:
 @router.patch("/{tool_id}/toggle")
 async def toggle_tool(tool_id: int, body: ToggleBody, db: AsyncSession = Depends(get_db)) -> Any:
     obj = await _svc.toggle(db, tool_id, body.enabled)
-    return ApiResponse.ok(_to_dict(obj))
+    return ApiResponse.ok(_tool_to_dict(obj))

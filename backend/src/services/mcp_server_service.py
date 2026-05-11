@@ -78,6 +78,14 @@ class MCPServerService:
         elif obj.auth_type.value == "BASIC_AUTH":
             creds = f"{auth.get('username', '')}:{auth.get('password', '')}"
             headers["Authorization"] = f"Basic {base64.b64encode(creds.encode()).decode()}"
+        elif obj.auth_type.value == "JWT_BEARER":
+            headers["Authorization"] = f"Bearer {auth.get('token', '')}"
+        elif obj.auth_type.value == "OAUTH2":
+            token = auth.get("access_token", "")
+            token_type = auth.get("token_type", "bearer").lower()
+            headers["Authorization"] = f"{token_type.capitalize()} {token}"
+        if obj.headers:
+            headers.update(obj.headers)
         return headers
 
     async def connect(self, db: AsyncSession, server_id: int) -> dict:
