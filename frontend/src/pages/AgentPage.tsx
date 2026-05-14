@@ -288,6 +288,7 @@ export default function AgentPage() {
   const [skills, setSkills] = useState<SkillOption[]>([])
   const [servers, setServers] = useState<MCPServerOption[]>([])
   const [rules, setRules] = useState<DetectionRuleOption[]>([])
+  const [publishedAgents, setPublishedAgents] = useState<AgentListItem[]>([])
   const [listLoading, setListLoading] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
@@ -316,18 +317,20 @@ export default function AgentPage() {
   const loadMeta = useCallback(async () => {
     setMetaLoading(true)
     try {
-      const [modelResponse, toolResponse, skillResponse, serverResponse, ruleResponse] = await Promise.all([
+      const [modelResponse, toolResponse, skillResponse, serverResponse, ruleResponse, publishedAgentResponse] = await Promise.all([
         modelApi.list({ page: 1, page_size: 500 }),
         toolApi.list({ page: 1, page_size: 500 }),
         skillApi.list({ page: 1, page_size: 500 }),
         mcpServerApi.list({ page: 1, page_size: 200 }),
         detectionRuleApi.list({ page: 1, page_size: 500 }),
+        agentApi.list({ page: 1, page_size: 500, status: 'published' }),
       ])
       setModels(normalizeListResponse<ModelOption>(modelResponse).items)
       setTools(normalizeListResponse<ToolOption>(toolResponse).items)
       setSkills(normalizeListResponse<SkillOption>(skillResponse).items)
       setServers(normalizeListResponse<MCPServerOption>(serverResponse).items)
       setRules(normalizeListResponse<DetectionRuleOption>(ruleResponse).items)
+      setPublishedAgents(normalizeListResponse<AgentListItem>(publishedAgentResponse).items)
     } finally {
       setMetaLoading(false)
     }
@@ -395,8 +398,8 @@ export default function AgentPage() {
 
   const childAgentOptions = useMemo(
     () =>
-      agents.filter((item) => item.agent_type !== 'ORCHESTRATOR' && item.id !== editingAgent?.id),
-    [agents, editingAgent?.id],
+      publishedAgents.filter((item) => item.agent_type !== 'ORCHESTRATOR' && item.id !== editingAgent?.id),
+    [publishedAgents, editingAgent?.id],
   )
 
   const selectedTools = useMemo(
@@ -533,7 +536,6 @@ export default function AgentPage() {
               <Select
                 options={[
                   { label: 'SINGLE', value: 'SINGLE' },
-                  { label: 'SUB', value: 'SUB' },
                   { label: 'ORCHESTRATOR', value: 'ORCHESTRATOR' },
                 ]}
               />
