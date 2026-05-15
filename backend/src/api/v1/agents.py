@@ -33,7 +33,6 @@ class AgentCreate(BaseModel):
     intent_model_id: int | None = None
     intent_confidence_threshold: float = 0.85
     intent_system_prompt: str | None = None
-    intent_entity_schema: list | None = None
     routing_strategy: str = "smart"
     routing_model_id: int | None = None
     routing_system_prompt: str | None = None
@@ -60,7 +59,6 @@ class AgentUpdate(BaseModel):
     intent_model_id: int | None = None
     intent_confidence_threshold: float | None = None
     intent_system_prompt: str | None = None
-    intent_entity_schema: list | None = None
     routing_strategy: str | None = None
     routing_model_id: int | None = None
     routing_system_prompt: str | None = None

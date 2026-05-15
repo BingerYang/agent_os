@@ -66,15 +66,33 @@ async def load_from_db(db: AsyncSession) -> RuntimeContext:
         logger.error("loader.load_pipelines_failed error=%s", exc)
         raise
 
+    from src.models.agent_detection_binding import AgentDetectionBinding as _ADB
+
     for pl in pipelines:
         if not pl.uid or pl.primary_agent_id is None:
             continue
+        # Load agent-level detection bindings (replaces pipeline-level rules)
+        binding_rows = (await db.execute(
+            select(_ADB)
+            .where(_ADB.agent_id == pl.primary_agent_id, _ADB.enabled == True)  # noqa: E712
+            .order_by(_ADB.priority_override.asc().nullslast(), _ADB.id.asc())
+        )).scalars().all()
+        detection_rule_ids = [b.rule_id for b in binding_rows]
+        binding_overrides = {
+            b.rule_id: {
+                "config": b.config_override or {},
+                "action": b.action_override,
+                "priority": b.priority_override,
+            }
+            for b in binding_rows
+        }
         pipeline_cache[pl.uid] = PipelineCacheEntry(
             pipeline_uid=pl.uid,
             pipeline_id=pl.id,
             pipeline_type=pl.pipeline_type.value,
             primary_agent_id=pl.primary_agent_id,
-            detection_rule_ids=[r.id for r in (pl.detection_rules or [])],
+            detection_rule_ids=detection_rule_ids,
+            binding_overrides=binding_overrides,
             route_confidence_threshold=pl.route_confidence_threshold or 0.7,
             timeout_seconds=pl.timeout_seconds or 30,
             enabled=pl.enabled,
@@ -272,29 +290,32 @@ async def _reload_agent(
         )
         pipeline = pipeline_result.scalar_one_or_none()
         if pipeline and pipeline.uid:
-            from sqlalchemy.orm import selectinload as _sil
-            det_result = await db.execute(
-                select(_Pipeline)
-                .where(_Pipeline.id == pipeline.id)
-                .options(_sil(_Pipeline.detection_rules))
-            )
-            pl_with_rules = det_result.scalar_one_or_none()
-            detection_rule_ids = (
-                [r.id for r in pl_with_rules.detection_rules]
-                if pl_with_rules
-                else []
-            )
+            from src.models.agent_detection_binding import AgentDetectionBinding as _ADB
+            binding_rows = (await db.execute(
+                select(_ADB)
+                .where(_ADB.agent_id == agent_id, _ADB.enabled == True)  # noqa: E712
+                .order_by(_ADB.priority_override.asc().nullslast(), _ADB.id.asc())
+            )).scalars().all()
+            detection_rule_ids = [b.rule_id for b in binding_rows]
+            binding_overrides = {
+                b.rule_id: {
+                    "config": b.config_override or {},
+                    "action": b.action_override,
+                    "priority": b.priority_override,
+                }
+                for b in binding_rows
+            }
             context.pipeline_cache[pipeline.uid] = PipelineCacheEntry(
                 pipeline_uid=pipeline.uid,
                 pipeline_id=pipeline.id,
                 pipeline_type=pipeline.pipeline_type.value,
                 primary_agent_id=agent_id,
                 detection_rule_ids=detection_rule_ids,
+                binding_overrides=binding_overrides,
                 route_confidence_threshold=pipeline.route_confidence_threshold or 0.7,
                 timeout_seconds=pipeline.timeout_seconds or 30,
                 enabled=True,
-            )
-        logger.info(
+            )        logger.info(
             "loader.agent_reloaded agent_id=%d version=%d",
             agent_id, pub.version,
         )

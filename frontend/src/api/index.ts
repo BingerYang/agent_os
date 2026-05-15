@@ -150,6 +150,7 @@ export const detectionRuleApi = {
   update: (id: number, data: object) => http.put(`/detection-rules/${id}`, data),
   delete: (id: number) => http.delete(`/detection-rules/${id}`),
   toggle: (id: number, enabled: boolean) => http.patch(`/detection-rules/${id}/toggle`, { enabled }),
+  meta: () => http.get('/detection-rules/meta'),
 }
 
 export const mcpServerApi = {
@@ -170,4 +171,28 @@ export const workflowApi = {
   update: (id: number, data: object) => http.put(`/workflows/${id}`, data),
   delete: (id: number) => http.delete(`/workflows/${id}`),
   toggle: (id: number, enabled: boolean) => http.patch(`/workflows/${id}/toggle`, { enabled }),
+}
+
+export const agentDetectionApi = {
+  listBindings: (agentId: number) => http.get(`/agents/${agentId}/detection-bindings`),
+  getSummary: (agentId: number) => http.get(`/agents/${agentId}/detection-bindings/summary`),
+  createBinding: (agentId: number, data: object) =>
+    http.post(`/agents/${agentId}/detection-bindings`, data),
+  updateBinding: (agentId: number, bindingId: number, data: object) =>
+    http.put(`/agents/${agentId}/detection-bindings/${bindingId}`, data),
+  deleteBinding: (agentId: number, bindingId: number) =>
+    http.delete(`/agents/${agentId}/detection-bindings/${bindingId}`),
+  toggleBinding: (agentId: number, bindingId: number, enabled: boolean) =>
+    http.patch(`/agents/${agentId}/detection-bindings/${bindingId}/toggle`, { enabled }),
+}
+
+export const detectionEventApi = {
+  list: (params?: object) => http.get('/detection-events', { params }),
+  get: (id: number) => http.get(`/detection-events/${id}`),
+  review: (id: number, data: { status: string; reviewer_note?: string }) =>
+    http.patch(`/detection-events/${id}/review`, data),
+}
+
+export const policyAuditApi = {
+  list: (params?: object) => http.get('/policy-config-audits', { params }),
 }

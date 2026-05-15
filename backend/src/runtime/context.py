@@ -32,6 +32,7 @@ class PipelineCacheEntry:
     pipeline_type: str
     primary_agent_id: int
     detection_rule_ids: list[int] = field(default_factory=list)
+    binding_overrides: dict[int, dict] = field(default_factory=dict)
     route_confidence_threshold: float = 0.7
     timeout_seconds: int = 30
     enabled: bool = True
@@ -71,16 +72,39 @@ class RuntimeContext:
         """
         return self.pipeline_cache.get(pipeline_uid)
 
-    def get_detection_rules(self, rule_ids: list[int]) -> list[DetectionRule]:
-        """按 ID 列表获取检测规则，跳过未找到的 ID。
+    def get_detection_rules(
+        self,
+        rule_ids: list[int],
+        overrides: dict[int, dict] | None = None,
+    ) -> list[DetectionRule]:
+        """按 ID 列表获取检测规则，按需应用 per-agent 覆盖配置。
 
         Args:
             rule_ids: 检测规则 ID 列表。
+            overrides: rule_id -> {config, action, priority} 覆盖字典，可选。
 
         Returns:
-            对应的 DetectionRule 列表。
+            对应的 DetectionRule 列表（有覆盖时返回浅拷贝以避免污染缓存）。
         """
-        return [self.detection_cache[rid] for rid in rule_ids if rid in self.detection_cache]
+        from copy import copy
+        result = []
+        for rid in rule_ids:
+            rule = self.detection_cache.get(rid)
+            if rule is None:
+                continue
+            if overrides and rid in overrides:
+                ov = overrides[rid]
+                r = copy(rule)
+                if "config" in ov and ov["config"]:
+                    r.rule_content = {**(rule.rule_content or {}), **ov["config"]}
+                if "action" in ov and ov["action"]:
+                    r.action_type = ov["action"]
+                if "priority" in ov and ov["priority"] is not None:
+                    r.priority = ov["priority"]
+                result.append(r)
+            else:
+                result.append(rule)
+        return result
 
     def update_pipeline_enabled_for_agent(self, agent_id: int, enabled: bool) -> None:
         """更新指定 Agent 对应流水线的启用状态。"""

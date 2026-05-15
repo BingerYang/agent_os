@@ -42,7 +42,10 @@ def _build_agent_context(
     if not pipeline_cfg or not pipeline_cfg.enabled:
         raise ResourceNotFound(f"流水线 {pipeline_uid} 不存在或未启用")
 
-    detection_rules = context.get_detection_rules(pipeline_cfg.detection_rule_ids)
+    detection_rules = context.get_detection_rules(
+        pipeline_cfg.detection_rule_ids,
+        pipeline_cfg.binding_overrides,
+    )
     pre_rules = sorted([r for r in detection_rules if r.stage == "PRE"], key=lambda r: r.priority)
     post_rules = sorted([r for r in detection_rules if r.stage == "POST"], key=lambda r: r.priority)
 

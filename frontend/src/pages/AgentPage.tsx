@@ -15,9 +15,11 @@ import {
   message,
 } from 'antd'
 import type { TabsProps } from 'antd'
+import DetectionStrategyForm from '../components/DetectionStrategyForm'
 import StatusTag from '../components/StatusTag'
 import {
   agentApi,
+  agentDetectionApi,
   detectionRuleApi,
   mcpServerApi,
   modelApi,
@@ -102,8 +104,6 @@ interface AgentFormValues {
   routing_threshold: number
   routing_system_prompt?: string
   sub_agent_ids: number[]
-  pre_rule_ids_text?: string
-  post_rule_ids_text?: string
   enabled: boolean
 }
 
@@ -135,12 +135,6 @@ interface MCPServerOption {
   display_name?: string
 }
 
-interface DetectionRuleOption {
-  id: number
-  name: string
-  stage: RuleStage
-}
-
 interface PublishAgentResponse {
   pipeline_uid?: string
 }
@@ -168,8 +162,6 @@ const defaultFormValues: AgentFormValues = {
   routing_threshold: 0.8,
   routing_system_prompt: '',
   sub_agent_ids: [],
-  pre_rule_ids_text: '',
-  post_rule_ids_text: '',
   enabled: true,
 }
 
@@ -190,30 +182,6 @@ const protocolTagClass: Record<ToolOption['protocol'], string> = {
   BUILTIN: 'tag-purple',
 }
 
-const ruleStageLabel: Record<RuleStage, string> = {
-  PRE: '前置',
-  POST: '后置',
-}
-
-const parseIdLines = (value?: string) =>
-  (value || '')
-    .split('\n')
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((item) => Number(item))
-    .filter((item) => Number.isFinite(item))
-
-const ruleLinesToText = (ids: number[]) => ids.join('\n')
-
-const pickRuleIdsFromSchema = (schema: AgentDetail['intent_entity_schema'], stage: RuleStage) => {
-  if (!Array.isArray(schema)) return []
-  return schema
-    .filter((item) => item?.stage === stage && Array.isArray(item.rule_ids))
-    .flatMap((item) => item.rule_ids || [])
-    .map((id) => Number(id))
-    .filter((id) => Number.isFinite(id))
-}
-
 const toFormValues = (detail?: Partial<AgentDetail>): AgentFormValues => ({
   ...defaultFormValues,
   ...detail,
@@ -228,15 +196,10 @@ const toFormValues = (detail?: Partial<AgentDetail>): AgentFormValues => ({
   tool_ids: detail?.tool_ids || [],
   skill_ids: detail?.skill_ids || [],
   sub_agent_ids: detail?.sub_agent_ids || [],
-  pre_rule_ids_text: ruleLinesToText(pickRuleIdsFromSchema(detail?.intent_entity_schema, 'PRE')),
-  post_rule_ids_text: ruleLinesToText(pickRuleIdsFromSchema(detail?.intent_entity_schema, 'POST')),
 })
 
 const buildSubmitPayload = (values: AgentFormValues, currentAgent?: AgentDetail | null) => {
   const isOrchestrator = values.agent_type === 'ORCHESTRATOR'
-  const preRuleIds = parseIdLines(values.pre_rule_ids_text)
-  const postRuleIds = parseIdLines(values.post_rule_ids_text)
-
   return {
     name: values.name.trim(),
     agent_type: values.agent_type,
@@ -253,10 +216,6 @@ const buildSubmitPayload = (values: AgentFormValues, currentAgent?: AgentDetail 
     intent_model_id: !isOrchestrator ? values.intent_model_id : undefined,
     intent_confidence_threshold: !isOrchestrator ? values.intent_confidence_threshold : undefined,
     intent_system_prompt: !isOrchestrator ? values.intent_system_prompt?.trim() || '' : '',
-    intent_entity_schema: [
-      { stage: 'PRE', rule_ids: preRuleIds },
-      { stage: 'POST', rule_ids: postRuleIds },
-    ],
     routing_strategy: isOrchestrator ? values.routing_strategy : 'smart',
     routing_model_id: isOrchestrator ? values.routing_model_id : undefined,
     routing_threshold: isOrchestrator ? values.routing_threshold : 0.8,
@@ -287,7 +246,6 @@ export default function AgentPage() {
   const [tools, setTools] = useState<ToolOption[]>([])
   const [skills, setSkills] = useState<SkillOption[]>([])
   const [servers, setServers] = useState<MCPServerOption[]>([])
-  const [rules, setRules] = useState<DetectionRuleOption[]>([])
   const [publishedAgents, setPublishedAgents] = useState<AgentListItem[]>([])
   const [listLoading, setListLoading] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -305,31 +263,36 @@ export default function AgentPage() {
   const [activeTab, setActiveTab] = useState('basic')
   const pageSize = 20
 
+  // 检测策略绑定状态
+  const [bindings, setBindings] = useState<Record<string, unknown>[]>([])
+  const [bindingLoading, setBindingLoading] = useState(false)
+  const [bindingDrawerOpen, setBindingDrawerOpen] = useState(false)
+  const [editingBinding, setEditingBinding] = useState<Record<string, unknown> | null>(null)
+  const [bindingConfigOverride, setBindingConfigOverride] = useState<Record<string, unknown>>({})
+  const [availableRules, setAvailableRules] = useState<Record<string, unknown>[]>([])
+  const [selectedRuleId, setSelectedRuleId] = useState<number | null>(null)
+
   const currentAgentType = Form.useWatch('agent_type', form) || 'SINGLE'
   const currentPlatform = Form.useWatch('source_platform', form) || 'local'
   const currentServerFilter = Form.useWatch('mcp_server_filter_id', form)
   const selectedToolIds = Form.useWatch('tool_ids', form) || []
   const selectedSkillIds = Form.useWatch('skill_ids', form) || []
   const selectedSubAgentIds = Form.useWatch('sub_agent_ids', form) || []
-  const preRuleIds = parseIdLines(Form.useWatch('pre_rule_ids_text', form))
-  const postRuleIds = parseIdLines(Form.useWatch('post_rule_ids_text', form))
 
   const loadMeta = useCallback(async () => {
     setMetaLoading(true)
     try {
-      const [modelResponse, toolResponse, skillResponse, serverResponse, ruleResponse, publishedAgentResponse] = await Promise.all([
+      const [modelResponse, toolResponse, skillResponse, serverResponse, publishedAgentResponse] = await Promise.all([
         modelApi.list({ page: 1, page_size: 500 }),
         toolApi.list({ page: 1, page_size: 500 }),
         skillApi.list({ page: 1, page_size: 500 }),
         mcpServerApi.list({ page: 1, page_size: 200 }),
-        detectionRuleApi.list({ page: 1, page_size: 500 }),
         agentApi.list({ page: 1, page_size: 500, status: 'published' }),
       ])
       setModels(normalizeListResponse<ModelOption>(modelResponse).items)
       setTools(normalizeListResponse<ToolOption>(toolResponse).items)
       setSkills(normalizeListResponse<SkillOption>(skillResponse).items)
       setServers(normalizeListResponse<MCPServerOption>(serverResponse).items)
-      setRules(normalizeListResponse<DetectionRuleOption>(ruleResponse).items)
       setPublishedAgents(normalizeListResponse<AgentListItem>(publishedAgentResponse).items)
     } finally {
       setMetaLoading(false)
@@ -417,12 +380,27 @@ export default function AgentPage() {
     [childAgentOptions, selectedSubAgentIds],
   )
 
+  const selectedBindingRule = useMemo(
+    () => availableRules.find((r) => r.id === selectedRuleId) ?? null,
+    [availableRules, selectedRuleId],
+  )
+
+  const selectedBindingStrategyType = useMemo(
+    () =>
+      editingBinding
+        ? (editingBinding.strategy_type as string)
+        : (selectedBindingRule?.strategy_type as string | undefined),
+    [editingBinding, selectedBindingRule],
+  )
+
   const openCreateDrawer = () => {
     setDrawerMode('create')
     setEditingAgent(null)
     setActiveTab('basic')
     form.resetFields()
     form.setFieldsValue(defaultFormValues)
+    setBindings([])
+    setAvailableRules([])
     setDrawerOpen(true)
   }
 
@@ -433,6 +411,19 @@ export default function AgentPage() {
     form.resetFields()
     form.setFieldsValue(defaultFormValues)
     await loadAgentDetail(id)
+    void loadBindings(id)
+    const ruleResp = await detectionRuleApi.list({ page: 1, page_size: 500 })
+    setAvailableRules(normalizeListResponse<Record<string, unknown>>(ruleResp).items)
+  }
+
+  const loadBindings = async (agentId: number) => {
+    setBindingLoading(true)
+    try {
+      const resp = await agentDetectionApi.listBindings(agentId)
+      setBindings(normalizeListResponse<Record<string, unknown>>(resp).items)
+    } finally {
+      setBindingLoading(false)
+    }
   }
 
   const closeDrawer = () => {
@@ -440,6 +431,9 @@ export default function AgentPage() {
     setDetailLoading(false)
     setEditingAgent(null)
     setActiveTab('basic')
+    setBindings([])
+    setAvailableRules([])
+    setSelectedRuleId(null)
     form.resetFields()
   }
 
@@ -510,16 +504,41 @@ export default function AgentPage() {
     }
   }
 
-  const renderRulePreview = (ruleIds: number[], stage: RuleStage) => {
-    const matchedRules = rules.filter((item) => item.stage === stage && ruleIds.includes(item.id))
-    if (!matchedRules.length) {
-      return <span className="chip">暂无{ruleStageLabel[stage]}规则</span>
+  const handleSaveBinding = async () => {
+    if (!editingAgent || selectedRuleId === null) return
+    try {
+      if (editingBinding) {
+        await agentDetectionApi.updateBinding(editingAgent.id, editingBinding.id as number, {
+          config_override: bindingConfigOverride,
+        })
+      } else {
+        await agentDetectionApi.createBinding(editingAgent.id, {
+          rule_id: selectedRuleId,
+          config_override: bindingConfigOverride,
+        })
+      }
+      message.success('保存成功')
+      setBindingDrawerOpen(false)
+      setEditingBinding(null)
+      setBindingConfigOverride({})
+      setSelectedRuleId(null)
+      await loadBindings(editingAgent.id)
+    } catch {
+      // error handled by axios interceptor
     }
-    return matchedRules.map((rule) => (
-      <span key={rule.id} className="chip">
-        #{rule.id} {rule.name}
-      </span>
-    ))
+  }
+
+  const handleUnbind = async (bindingId: number) => {
+    if (!editingAgent) return
+    await agentDetectionApi.deleteBinding(editingAgent.id, bindingId)
+    message.success('已解绑')
+    await loadBindings(editingAgent.id)
+  }
+
+  const handleToggleBinding = async (bindingId: number, enabled: boolean) => {
+    if (!editingAgent) return
+    await agentDetectionApi.toggleBinding(editingAgent.id, bindingId, enabled)
+    await loadBindings(editingAgent.id)
   }
 
   const tabItems: TabsProps['items'] = [
@@ -777,41 +796,94 @@ export default function AgentPage() {
   }
 
   tabItems.push({
-    key: 'rules',
-    label: '检测规则 🛡️',
+    key: 'detection_bindings',
+    label: '检测策略 🔒',
     children: (
       <div className="form-section">
-        <div className="form-grid-2">
-          <Form.Item label="前置检测链" name="pre_rule_ids_text">
-            <Input.TextArea rows={7} className="mono-textarea" placeholder="每行输入一个规则 ID" />
-          </Form.Item>
-          <Form.Item label="后置检测链" name="post_rule_ids_text">
-            <Input.TextArea rows={7} className="mono-textarea" placeholder="每行输入一个规则 ID" />
-          </Form.Item>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div className="form-section-title" style={{ margin: 0 }}>已绑定策略</div>
+          {drawerMode === 'edit' && (
+            <Button
+              size="small"
+              type="primary"
+              onClick={() => {
+                setEditingBinding(null)
+                setBindingConfigOverride({})
+                setSelectedRuleId(null)
+                setBindingDrawerOpen(true)
+              }}
+            >
+              + 绑定策略
+            </Button>
+          )}
         </div>
-        <div className="form-grid-2">
-          <div>
-            <div className="form-section-title">前置规则预览</div>
-            <div className="chip-list">{renderRulePreview(preRuleIds, 'PRE')}</div>
+        {bindingLoading ? (
+          <div className="table-loading"><Spin /></div>
+        ) : bindings.length ? (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>规则名称</th>
+                  <th>阶段</th>
+                  <th>策略</th>
+                  <th>处置</th>
+                  <th>优先级</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bindings.map((b) => (
+                  <tr key={b.id as number}>
+                    <td style={{ fontWeight: 600 }}>{b.rule_name as string}</td>
+                    <td>{b.effective_stage as string}</td>
+                    <td style={{ fontSize: 12 }}>{b.effective_strategy as string}</td>
+                    <td style={{ fontSize: 12 }}>{b.effective_action as string}</td>
+                    <td>{b.effective_priority as number}</td>
+                    <td>
+                      <StatusTag enabled={b.enabled as boolean} />
+                    </td>
+                    <td>
+                      <div className="actions">
+                        <button
+                          type="button"
+                          style={{ color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, padding: '2px 6px' }}
+                          onClick={() => {
+                            setEditingBinding(b)
+                            setSelectedRuleId(b.rule_id as number)
+                            setBindingConfigOverride((b.config_override as Record<string, unknown>) || {})
+                            setBindingDrawerOpen(true)
+                          }}
+                        >
+                          配置
+                        </button>
+                        <button
+                          type="button"
+                          style={{ color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, padding: '2px 6px' }}
+                          onClick={() => void handleToggleBinding(b.id as number, !(b.enabled as boolean))}
+                        >
+                          {b.enabled ? '禁用' : '启用'}
+                        </button>
+                        <Popconfirm title="确认解绑？" onConfirm={() => void handleUnbind(b.id as number)}>
+                          <button
+                            type="button"
+                            style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, padding: '2px 6px' }}
+                          >
+                            解绑
+                          </button>
+                        </Popconfirm>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <div>
-            <div className="form-section-title">后置规则预览</div>
-            <div className="chip-list">{renderRulePreview(postRuleIds, 'POST')}</div>
-          </div>
-        </div>
-        <div className="form-section-title">可用规则参考</div>
-        {rules.length ? (
-          rules.map((rule) => (
-            <div key={rule.id} className="kv-row">
-              <div className="kv-label">规则 #{rule.id}</div>
-              <div className="kv-value">
-                {rule.name} <span className={`tag ${rule.stage === 'PRE' ? 'tag-blue' : 'tag-orange'}`}>{ruleStageLabel[rule.stage]}</span>
-              </div>
-            </div>
-          ))
         ) : (
           <div className="empty-state" style={{ padding: '24px 12px' }}>
-            <div className="empty-state-text">暂无可用检测规则</div>
+            <div className="empty-state-icon">🛡️</div>
+            <div className="empty-state-text">{drawerMode === 'create' ? '请先保存 Agent 再绑定策略' : '尚未绑定检测策略'}</div>
           </div>
         )}
       </div>
@@ -1043,6 +1115,62 @@ export default function AgentPage() {
             <Tabs className="detail-tabs" activeKey={activeTab} items={tabItems} onChange={setActiveTab} />
           </Form>
         </Spin>
+      </Drawer>
+
+      <Drawer
+        title={editingBinding ? '编辑策略绑定' : '绑定检测策略'}
+        width={520}
+        open={bindingDrawerOpen}
+        onClose={() => {
+          setBindingDrawerOpen(false)
+          setEditingBinding(null)
+          setBindingConfigOverride({})
+          setSelectedRuleId(null)
+        }}
+        destroyOnClose
+        extra={
+          <div className="drawer-footer">
+            <Button onClick={() => {
+              setBindingDrawerOpen(false)
+              setEditingBinding(null)
+              setBindingConfigOverride({})
+              setSelectedRuleId(null)
+            }}>取消</Button>
+            <Button type="primary" onClick={() => void handleSaveBinding()}>保存</Button>
+          </div>
+        }
+      >
+        {!editingBinding && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 8, fontWeight: 500 }}>选择检测规则</div>
+            <Select
+              style={{ width: '100%' }}
+              placeholder="请选择要绑定的规则"
+              value={selectedRuleId}
+              onChange={(v) => { setSelectedRuleId(v); setBindingConfigOverride({}) }}
+              options={availableRules.map((r) => ({
+                label: `#${r.id as number} ${r.name as string} [${r.stage as string}]`,
+                value: r.id as number,
+              }))}
+            />
+          </div>
+        )}
+        {editingBinding && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 4, color: '#6b7280', fontSize: 12 }}>当前规则</div>
+            <div style={{ fontWeight: 600 }}>{editingBinding.rule_name as string}</div>
+          </div>
+        )}
+        {selectedBindingStrategyType && (
+          <div>
+            <div style={{ marginBottom: 8, fontWeight: 500 }}>策略配置（覆盖默认值）</div>
+            <DetectionStrategyForm
+              strategyType={selectedBindingStrategyType}
+              value={bindingConfigOverride}
+              onChange={setBindingConfigOverride}
+            />
+          </div>
+        )}
       </Drawer>
     </div>
   )
